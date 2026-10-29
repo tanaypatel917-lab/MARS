@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#05040A" />
+    <meta name="description" content="Take an open-weights model. Teach it one workflow. Let it improve on hardware you own." />
+    <link rel="icon" href="/favicon.svg" />
+    <title>MARS — One model. One mission.</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#waitlist">Skip to early access</a>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div id="fallback" hidden aria-hidden="true"><div></div></div>
+    <header class="nav">
+      <a class="brand" href="#orbit" aria-label="MARS home">MARS<span class="brand-orbit">®</span></a>
+      <a class="nav-access" href="#waitlist">Early access <span aria-hidden="true">↗</span></a>
+    </header>
+    <main id="journey" aria-label="The MARS journey">
+      <section id="orbit" class="scroll-chapter" aria-label="Orbit"></section>
+      <section id="launch" class="scroll-chapter" aria-label="Launch"></section>
+      <section id="loop" class="scroll-chapter" aria-label="The loop"></section>
+      <section id="approach" class="scroll-chapter" aria-label="Approach"></section>
+      <section id="waitlist" class="scroll-chapter" aria-label="Arrival and early access"></section>
+    </main>
+    <div class="stage">
+      <section class="chapter orbit" data-chapter="orbit">
+        <p class="eyebrow mission-label">MARS — MASTERY · RECURSIVE SELF-IMPROVEMENT</p>
+        <div class="orbit-copy">
+          <p class="chapter-kicker">01 / ORBIT</p>
+          <h1>Your model,<br />sent to Mars.</h1>
+          <p class="body-copy">Take an open-weights model. Teach it one workflow. Let it fine-tune itself on what actually worked — on hardware you own.</p>
+        </div>
+        <p class="orbit-coordinate eyebrow">SOL 001 <span>25° N / 071° E</span></p>
+      </section>
+      <section class="chapter launch" data-chapter="launch" hidden>
+        <p class="eyebrow mission-label">02 / LAUNCH</p>
+        <div class="transition-copy"><h2 id="launch-copy">General models know a little about everything.</h2></div>
+      </section>
+      <section class="chapter loop" data-chapter="loop" hidden>
+        <p class="eyebrow mission-label">03 / THE LEARNING LOOP</p>
+        <div class="loop-copy">
+          <div class="loop-index" aria-hidden="true">01<span>/04</span></div>
+          <h2 id="loop-title">Observe</h2>
+          <p id="loop-description" class="body-copy">Capture real traces from your workflow. Not benchmarks.</p>
+          <div class="phase-track" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i></div>
+          <p class="eyebrow loop-caption">THE WORK BECOMES THE TEACHER.</p>
+        </div>
+        <p class="eyebrow ring-coordinate">CONTINUOUS IMPROVEMENT <span>↻</span></p>
+      </section>
+      <section class="chapter approach" data-chapter="approach" hidden>
+        <p class="eyebrow mission-label">04 / APPROACH</p>
+        <div class="transition-copy"><h2 id="approach-copy">Open weights. Yours.</h2></div>
+      </section>
+      <section class="chapter arrival" data-chapter="arrival" hidden>
+        <p class="eyebrow mission-label">05 / ARRIVAL <span>BLUE HOUR ON MARS</span></p>
+        <div class="arrival-copy">
+          <h2>Every mission starts<br />with one task.</h2>
+          <form id="access-form">
+            <label class="sr-only" for="email">Email address</label>
+            <div class="form-line"><input id="email" name="email" type="email" placeholder="Your email address" autocomplete="email" required /><button type="submit">Request early access <span aria-hidden="true">↗</span></button></div>
+            <p id="form-message" class="eyebrow" role="status">ONE TRANSMISSION WHEN WE'RE READY.</p>
+          </form>
+        </div>
+        <footer><span class="footer-wordmark" aria-hidden="true">MARS</span><p class="eyebrow">OPEN WEIGHTS. OPEN HORIZONS.<span>© 2026 MARS</span></p></footer>
+      </section>
+    </div>
+    <aside class="journey-hud" aria-label="Journey progress"><span id="chapter-indicator">01 — ORBIT</span><div class="progress-line"><i></i></div><span class="scroll-hint">SCROLL TO EXPLORE ↓</span></aside>
+    <template id="sound-slot"><button type="button" aria-pressed="false">Ambient audio off</button></template>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
