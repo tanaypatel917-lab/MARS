@@ -14,6 +14,10 @@ export interface FrameState {
   beautyFade: number;
   /** 0..1: the finished planet settles up and slightly smaller to clear the waitlist. */
   settle: number;
+  /** Pointer in -1..1 (x right, y up) and extra spin from scroll velocity. */
+  pointer: { x: number; y: number };
+  spin: number;
+  light: number;
   panels: PanelView[];
 }
 
@@ -33,6 +37,8 @@ export class MarsScene {
   private readonly passes: Record<Pass, THREE.Scene>;
   private readonly maskScene = new THREE.Scene();
   private readonly outlineScene = new THREE.Scene();
+  private readonly voidScene = new THREE.Scene();
+  private readonly voidMaterial: THREE.ShaderMaterial;
   private readonly mask: THREE.WebGLRenderTarget;
   private readonly outline: THREE.ShaderMaterial;
   private readonly wire: THREE.ShaderMaterial;
@@ -101,6 +107,10 @@ export class MarsScene {
     });
     this.disposables.push(this.outline);
     mesh(quad, this.outline, this.outlineScene, false).frustumCulled = false;
+    this.voidMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.voidFragment, depthTest: false, depthWrite: false,
+      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 } } });
+    this.disposables.push(this.voidMaterial);
+    mesh(quad, this.voidMaterial, this.voidScene, false).frustumCulled = false;
     this.resize();
   }
 
@@ -131,9 +141,19 @@ export class MarsScene {
   render(state: FrameState) {
     if (this.disposed) return;
     const r = this.renderer;
-    const spin = state.time * .04;
+    const spin = state.time * .04 + state.spin;
     const scale = 1 - state.settle * .14;
-    for (const body of this.bodies) { body.rotation.set(.18, spin, -.08); body.position.y = state.settle * .16; body.scale.setScalar(scale); body.updateMatrixWorld(); }
+    for (const body of this.bodies) {
+      body.rotation.set(.18 - state.pointer.y * .10, spin + state.pointer.x * .12, -.08);
+      body.position.set(state.pointer.x * .03, state.settle * .16 + state.pointer.y * .02, 0);
+      body.scale.setScalar(scale);
+      body.updateMatrixWorld();
+    }
+    const v = this.voidMaterial.uniforms;
+    v.uPointer.value.set(state.pointer.x * .5 + .5, state.pointer.y * .5 + .5);
+    v.uAspect.value = this.camera.aspect;
+    v.uTime.value = state.time;
+    v.uLight.value = state.light;
     this.transmission.uniforms.uTime.value = state.time;
     this.beauty.uniforms.uTime.value = state.time;
     this.wire.uniforms.uReveal.value = state.wireReveal;
@@ -147,6 +167,7 @@ export class MarsScene {
     r.setRenderTarget(null);
     r.setClearColor(BACKGROUND, 1);
     r.clear(true, true, false);
+    r.render(this.voidScene, this.camera);
     if (state.beautyFade > .001) {
       this.setFade(state.beautyFade);
       this.dusk.visible = false;

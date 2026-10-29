@@ -8,6 +8,7 @@ import { Ambient } from './audio';
 gsap.registerPlugin(CustomEase);
 const osmo = CustomEase.create('osmo', '0.625, 0.05, 0, 1');
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+const THREE_CLAMP = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const ease = (value: number, start: number, duration: number) => osmo(clamp01((value - start) / duration));
 
 interface Panel { pass: Pass; label: string; x: number; y: number; w: number; h: number; open: number; element: HTMLElement }
@@ -45,6 +46,28 @@ const panels: Panel[] = layout.map(item => {
   return { ...item, open: -1, element };
 });
 const ambient = new Ambient();
+const cursor = select('#cursor');
+const boot = select('#boot');
+const fine = matchMedia('(pointer: fine)');
+const pointer = { x: 0, y: 0, tx: 0, ty: 0, cx: innerWidth / 2, cy: innerHeight / 2, px: innerWidth / 2, py: innerHeight / 2, hot: false, seen: false };
+let spin = 0, spinVelocity = 0;
+const GLYPHS = '0123456789·abcdefghijklmnopqrstuvwxyz';
+function scramble(element: HTMLElement, text: string, duration = .5) {
+  const from = element.textContent ?? '';
+  const length = Math.max(from.length, text.length);
+  const state = { t: 0 };
+  gsap.killTweensOf(state);
+  gsap.to(state, { t: 1, duration, ease: 'power2.out', onUpdate() {
+    let out = '';
+    for (let i = 0; i < length; i++) {
+      const settled = state.t * length * 1.3 - i * .3 > 1;
+      out += settled ? (text[i] ?? '') : text[i] === ' ' ? ' ' : GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+    }
+    element.textContent = out.trimEnd();
+  }, onComplete() { element.textContent = text; } });
+}
+const endCopy = select('.end-copy');
+endCopy.innerHTML = (endCopy.textContent ?? '').split(' ').map((word, i) => `<span class="word"><span style="transition-delay:${i * 45}ms">${word}</span></span>`).join(' ');
 let scene: MarsScene | undefined;
 let lenis: Lenis | undefined;
 let progress = 0;
@@ -102,10 +125,20 @@ function draw(now: number) {
   const open = panels.filter(p => p.open > .5).length;
   const beautyFade = ease(progress, .80, .12);
   const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, open - 1))).padStart(3, '0')}`;
-  if (label !== lastCounter) { lastCounter = label; counter.textContent = label; }
+  if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
   const showEnd = progress > .9;
   if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); }
   document.body.dataset.scrolled = String(progress > .015);
+  pointer.x += (pointer.tx - pointer.x) * .06;
+  pointer.y += (pointer.ty - pointer.y) * .06;
+  spinVelocity *= .92;
+  spin += spinVelocity * dt;
+  if (fine.matches && pointer.seen) {
+    pointer.px += (pointer.cx - pointer.px) * .22;
+    pointer.py += (pointer.cy - pointer.py) * .22;
+    cursor.style.transform = `translate(${pointer.px}px, ${pointer.py}px) translate(-50%, -50%) scale(${pointer.hot ? 2.6 : 1})`;
+  }
+  if (t < INTRO && !introFrozen || frame === 'intro') boot.textContent = `tracing · ${String(Math.round(ease(t, .3, 1.5) * 100)).padStart(3, '0')}`;
   const state: FrameState = {
     time: now,
     outlineReveal: ease(t, .3, 1.5),
@@ -114,6 +147,9 @@ function draw(now: number) {
     wireOpacity: 1 - ease(t, 3.0, .6),
     beautyFade,
     settle: ease(progress, .86, .12),
+    pointer: { x: pointer.x, y: pointer.y },
+    spin,
+    light: Math.min(1, t / 2.2) * (pointer.seen ? 1 : .35),
     panels: views,
   };
   if (!document.hidden) scene?.render(state);
@@ -134,6 +170,7 @@ function tick(time: number) {
   draw(time);
 }
 function onScroll() {
+  if (lenis) spinVelocity = THREE_CLAMP(lenis.velocity * .012, -1.6, 1.6);
   const max = document.documentElement.scrollHeight - innerHeight;
   progress = max > 0 ? clamp01(scrollY / max) : 0;
   if (motion.matches || !scene) draw(performance.now() / 1000);
@@ -205,6 +242,15 @@ addEventListener('wheel', skipIntro, { passive: true });
 addEventListener('touchstart', skipIntro, { passive: true });
 addEventListener('keydown', skipIntro);
 document.addEventListener('click', click);
+addEventListener('pointermove', event => {
+  pointer.seen = true;
+  pointer.tx = (event.clientX / innerWidth) * 2 - 1;
+  pointer.ty = 1 - (event.clientY / innerHeight) * 2;
+  pointer.cx = event.clientX; pointer.cy = event.clientY;
+  pointer.hot = !!(event.target as Element).closest('a, button, input, label');
+  document.body.dataset.cursor = pointer.hot ? 'hot' : 'idle';
+}, { passive: true });
+document.addEventListener('pointerleave', () => { document.body.dataset.cursor = 'away'; });
 form.addEventListener('submit', submit);
 soundButton.addEventListener('click', () => { void toggleSound(); });
 canvas.addEventListener('webglcontextlost', contextLost);

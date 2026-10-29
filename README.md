@@ -10,7 +10,7 @@ Use Node24 (`source ~/.nvm/nvm.sh && nvm use 24`), then `npm install` and `npm r
 The install step downloads the two Fontshare fonts from their official source;
 see [FONTS.md](FONTS.md) for licenses and repository restrictions.
 
-Approval views: `?frame=orbit`, `?frame=loop`, `?frame=arrival`.
+Review states: `?frame=intro`, `rest`, `mid`, `full`, `close`, `beauty`.
 Type specimen: `/specimen.html`. `shots/` is intentionally gitignored.
 
 `npm run build` and `npx tsc --noEmit` check the production bundle/types.
@@ -18,15 +18,18 @@ With the server on5173 and Chromium CDP on29229, `npm test` verifies the
 frame/phase scaffold, form validation, reduced motion, WebGL fallback and mobile
 overflow. `node scripts/capture.mjs` writes approval screenshots to `shots/`.
 
-## Milestone 1
+## Milestone 2: one planet, five passes
 
-Orbit, Loop and Arrival are art-direction approval frames. Launch/Approach remain
-rough transitions. One renderer/camera, one normalized ScrollTrigger state,
-instanced ring particles and procedural planet/terrain; no external model assets.
-DPR≤1.5 and2.2MP budget; bloom at half resolution, grain/vignette final pass.
-Rendering pauses in hidden tabs; reduced motion renders one static state per chapter.
-Ambient audio is reserved in `#sound-slot` only; no audio is loaded or played.
+Design language after guillaumecolombel.fr: black page, corner-only UI, one
+irregular Mars body that never cuts away. Scrolling opens render-pass windows
+over it (wireframe, uv "observe", normals "evaluate", transmission "refine",
+beauty), each a GL scissor region aligned with its DOM frame, then the windows
+fold away and the finished planet remains above the waitlist. A hairline
+silhouette comes from a mask render target; the intro sweeps it in and densifies
+the wireframe. Pointer light, live grain, a cursor dot and scroll-velocity spin
+are the only decoration. DPR ≤ 1.5 and a 2.4MP budget; rendering pauses in hidden tabs;
+reduced motion skips the intro. The sound toggle plays a generated drone (off by default).
 
 The email form is a demo: native validation and an explicit non-persistent success
 message. It stores/sends nothing. The endpoint TODO is in `src/main.ts`.
-No deployment is configured at this milestone.
+No deployment is configured yet.

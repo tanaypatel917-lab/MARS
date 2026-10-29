@@ -90,6 +90,16 @@ void main(){vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;vec3 top=vec3(.016,.012,.
  gl_FragColor=vec4(c,1.);}
 `;
 
+/** The empty page itself: near-black, a faint pointer light and live grain, after Guillaume's void shader. */
+export const voidFragment = /* glsl */`
+uniform vec2 uPointer;uniform float uAspect;uniform float uTime;uniform float uLight;varying vec2 vUv;
+float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+void main(){vec2 d=vUv-uPointer;d.x*=uAspect;float r=length(d);
+ vec3 c=vec3(.0196,.0157,.0275);c+=vec3(.05,.055,.14)*exp(-r*r*12.)*uLight;c+=vec3(.03,.015,.05)*exp(-r*r*2.6)*uLight*.5;
+ float vignette=1.-.35*pow(length((vUv-.5)*vec2(1.,.8)),1.6);c*=vignette;
+ c+=(h2(gl_FragCoord.xy+floor(uTime*9.)*.37)-.5)*.022;gl_FragColor=vec4(max(c,0.),1.);}
+`;
+
 export const maskFragment = /* glsl */`void main(){gl_FragColor=vec4(1.);}`;
 
 /** Hairline silhouette from the mask, revealed by an angular sweep during the intro. */
