@@ -1,152 +1,324 @@
 import './style.css';
 import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { CustomEase } from 'gsap/CustomEase';
 import Lenis from 'lenis';
-import 'lenis/dist/lenis.css';
-import { MarsScene } from './scene';
+import { MarsScene, type FrameState, type PanelView, type Pass } from './scene';
+import { Ambient } from './audio';
 
-gsap.registerPlugin(ScrollTrigger);
-const chapters = ['orbit', 'launch', 'loop', 'approach', 'arrival'] as const;
-const phases = [
-  ['Observe', 'Capture real traces from your workflow. Not benchmarks.'],
-  ['Evaluate', 'Score every output against evals you write as code.'],
-  ['Refine', 'Fine-tune an open model on what passed.'],
-  ['Ascend', 'Ship the new weights only if they beat the old ones. Then loop.'],
+gsap.registerPlugin(CustomEase);
+const osmo = CustomEase.create('osmo', '0.625, 0.05, 0, 1');
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+const smooth = (value: number) => { const t = clamp01(value); return t * t * (3 - 2 * t); };
+const THREE_CLAMP = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const ease = (value: number, start: number, duration: number) => osmo(clamp01((value - start) / duration));
+
+interface Panel { pass: Pass; label: string; x: number; y: number; w: number; h: number; open: number; element: HTMLElement }
+const INTRO = 3.7;
+const OPEN = .09;
+const CAPTIONS = [
+  'mastery · recursive self-improvement',
+  'an open-weights model, before it has seen your work',
+  'observe · capture real traces from your workflow, not benchmarks',
+  'evaluate · score every output against evals you write as code',
+  'refine · fine-tune on what passed, on hardware you own',
+  'ascend · ship the new weights only if they beat the old ones. then loop',
+  'your model. sent to mars.',
 ];
+const CLOSE_START = .78;
+/** Panel rects in planet units: offsets from the planet centre and sizes as multiples of its on-screen radius, so the composition survives any viewport. */
+const layout: Omit<Panel, 'open' | 'element'>[] = [
+  { pass: 'wireframe', label: 'iter 000 · wireframe', x: -.85, y: -.81, w: 1.6, h: 1.375 },
+  { pass: 'observe', label: 'iter 001 · observe', x: -.75, y: .31, w: .95, h: 1.0 },
+  { pass: 'evaluate', label: 'iter 002 · evaluate', x: -.6, y: -1.5, w: 1.4, h: .81 },
+  { pass: 'refine', label: 'iter 003 · refine', x: -1.4, y: -.78, w: 1.25, h: .81 },
+  { pass: 'beauty', label: 'iter 004 · beauty', x: -.15, y: -.44, w: 1.1, h: .75 },
+  { pass: 'beauty', label: 'iter 004 · beauty', x: .58, y: -.91, w: 1.8, h: 1.69 },
+];
+const planetRadius = () => innerWidth / innerHeight < 1 ? .39 * innerWidth : .32 * innerHeight;
 const select = <T extends Element = HTMLElement>(selector: string) => {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
   return element;
 };
 const canvas = select<HTMLCanvasElement>('#scene');
-const panels = [...document.querySelectorAll<HTMLElement>('.chapter')];
-const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const host = select('.panels');
+const counter = select('#counter');
+const end = select('#waitlist');
 const form = select<HTMLFormElement>('#access-form');
 const email = select<HTMLInputElement>('#email');
-const indicator = select('#chapter-indicator');
-const line = select('.progress-line i');
-const loopTitle = select('#loop-title');
-const loopDescription = select('#loop-description');
-const loopIndex = select('.loop-index');
-const phaseTicks = [...document.querySelectorAll('.phase-track i')];
-let progress = 0;
-let currentChapter = -1;
-let currentPhase = -1;
+const soundButton = select<HTMLButtonElement>('#sound');
+const about = select('#about');
+const aboutToggle = select<HTMLButtonElement>('#about-toggle');
+const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const query = new URLSearchParams(location.search);
+const frame = query.get('frame');
+const panels: Panel[] = layout.map(item => {
+  const element = document.createElement('div');
+  element.className = 'panel';
+  element.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>${item.label}</span></div>`;
+  host.append(element);
+  return { ...item, open: -1, element };
+});
+const ambient = new Ambient();
+const cursor = select('#cursor');
+const boot = select('#boot');
+const fine = matchMedia('(pointer: fine)');
+const pointer = { x: 0, y: 0, tx: 0, ty: 0, cx: innerWidth / 2, cy: innerHeight / 2, px: innerWidth / 2, py: innerHeight / 2, hot: false, seen: false };
+let spin = 0, spinVelocity = 0;
+const GLYPHS = '0123456789·abcdefghijklmnopqrstuvwxyz';
+function scramble(element: HTMLElement, text: string, duration = .5) {
+  const from = element.textContent ?? '';
+  const length = Math.max(from.length, text.length);
+  const state = { t: 0 };
+  gsap.killTweensOf(state);
+  gsap.to(state, { t: 1, duration, ease: 'power2.out', onUpdate() {
+    let out = '';
+    for (let i = 0; i < length; i++) {
+      const settled = state.t * length * 1.3 - i * .3 > 1;
+      out += settled ? (text[i] ?? '') : text[i] === ' ' ? ' ' : GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+    }
+    element.textContent = out.trimEnd();
+  }, onComplete() { element.textContent = text; } });
+}
+const rail = select('.rail i');
+const tag = select('.tag');
+let lastCaption = '';
+const magnets = [...document.querySelectorAll<HTMLElement>('.magnet')];
+const endCopy = select('.end-copy');
+endCopy.innerHTML = (endCopy.textContent ?? '').split(' ').map((word, i) => `<span class="word"><span style="transition-delay:${i * 45}ms">${word}</span></span>`).join(' ');
 let scene: MarsScene | undefined;
 let lenis: Lenis | undefined;
-let disposed = false;
+let progress = 0;
+let introTime = 0;
+let introFrozen = false;
+let lastTick = 0;
+let endShown = false;
+let pendingJump: number | undefined;
+end.inert = true;
+let lastCounter = '';
 
 try {
   scene = new MarsScene(canvas);
   document.body.dataset.renderer = 'ready';
 } catch (error) {
-  console.warn('MARS: WebGL unavailable. Showing the static composition.', error);
+  console.warn('MARS: WebGL unavailable, showing the outline only.', error);
   canvas.hidden = true;
   select('#fallback').hidden = false;
   document.body.dataset.renderer = 'fallback';
 }
 
-function draw(time = 0) {
-  const index = Math.min(4, Math.floor(progress * 5));
-  const local = progress * 5 - index;
-  const phase = Math.min(3, Math.floor(local * 4));
-  if (index !== currentChapter) {
-    panels.forEach((panel, i) => { panel.hidden = i !== index; panel.inert = i !== index; });
-    currentChapter = index;
-    document.body.dataset.chapter = chapters[index];
-    indicator.textContent = `${String(index + 1).padStart(2, '0')} — ${chapters[index]}`;
-  }
-  const opacity = motion.matches ? 1 : Math.min(1, local * 14 + (index === 0 ? 1 : 0), (1 - local) * 14 + (index === 4 ? 1 : 0));
-  panels[index].style.opacity = String(opacity);
-  line.style.transform = `scaleX(${progress})`;
-  if (index === 2 && phase !== currentPhase) {
-    currentPhase = phase;
-    loopTitle.textContent = phases[phase][0];
-    loopDescription.textContent = phases[phase][1];
-    loopIndex.innerHTML = `${String(phase + 1).padStart(2, '0')}<span>/04</span>`;
-    phaseTicks.forEach((tick, i) => tick.classList.toggle('active', i === phase));
-    document.body.dataset.phase = String(phase);
-  }
-  select('#launch-copy').textContent = local < .5 ? 'General models know a little about everything.' : 'Yours will know everything about one thing.';
-  const approach = ['Open weights. Yours.', 'Small enough to run anywhere.', 'Day 100 beats day 1.'];
-  select('#approach-copy').textContent = approach[Math.min(2, Math.floor(local * 3))];
-  if (!document.hidden) scene?.render(motion.matches ? (index + .5) / 5 : progress, motion.matches ? 0 : time);
+function panelViews(): PanelView[] {
+  const radius = planetRadius(), cx = innerWidth / 2, cy = innerHeight / 2;
+  const bar = Math.min(innerWidth, innerHeight) < 700 ? 20 : 24;
+  const views: PanelView[] = [];
+  panels.forEach((panel, i) => {
+    const opening = ease(progress, .06 + i * .12, OPEN);
+    const closing = ease(progress, CLOSE_START + (panels.length - 1 - i) * .012, .07);
+    const open = opening * (1 - closing);
+    const tear = opening > .02 && opening < .5 ? Math.round((Math.random() - .5) * 10 * (1 - opening * 2)) : 0;
+    const left = Math.round(cx + panel.x * radius) + tear, top = Math.round(cy + panel.y * radius);
+    const fullWidth = Math.round(panel.w * radius);
+    const wide = smooth(open / .62), tall = smooth((open - .38) / .62);
+    const w = Math.round(fullWidth * wide), h = Math.round(panel.h * radius * tall);
+    if (open !== panel.open || tear) {
+      panel.open = open;
+      const style = panel.element.style;
+      style.left = `${left}px`;
+      style.top = `${top}px`;
+      style.width = `${w}px`;
+      style.height = `${h}px`;
+      style.display = w > 48 && h > bar + 10 ? '' : 'none';
+      style.zIndex = String(i);
+      (panel.element.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
+    }
+    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2 });
+  });
+  return views;
 }
 
-const trigger = ScrollTrigger.create({
-  trigger: '#journey', start: 'top top', end: 'bottom bottom',
-  onUpdate: self => { progress = self.progress; if (motion.matches || !scene) draw(); },
-});
+function draw(now: number) {
+  const dt = lastTick ? Math.min(.05, now - lastTick) : 0;
+  lastTick = now;
+  if (!introFrozen && introTime < INTRO) {
+    introTime = Math.min(INTRO, introTime + dt);
+    if (introTime >= INTRO) finishIntro();
+  }
+  const t = introTime;
+  const views = panelViews();
+  const open = panels.filter(p => p.open > .5).length;
+  const stage = panels.filter((_, i) => progress >= .06 + i * .12 + OPEN * .5).length;
+  const beautyFade = ease(progress, .80, .12);
+  const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, stage - 1))).padStart(3, '0')}`;
+  if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
+  const caption = CAPTIONS[progress > .9 ? 6 : beautyFade > .5 ? 5 : Math.min(5, stage)];
+  if (caption !== lastCaption) { if (lastCaption && open > 0 && !motion.matches) ambient.tick(); lastCaption = caption; scramble(tag, caption, .7); }
+  const showEnd = progress > .9;
+  if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); end.inert = !showEnd; document.body.dataset.end = showEnd ? 'on' : 'off'; }
+  document.body.dataset.scrolled = String(progress > .015);
+  rail.style.transform = `scaleY(${progress})`;
+  pointer.x += (pointer.tx - pointer.x) * .06;
+  pointer.y += (pointer.ty - pointer.y) * .06;
+  spinVelocity *= .92;
+  spin += spinVelocity * dt;
+  if (fine.matches && pointer.seen) {
+    pointer.px += (pointer.cx - pointer.px) * .22;
+    pointer.py += (pointer.cy - pointer.py) * .22;
+    cursor.style.transform = `translate(${pointer.px}px, ${pointer.py}px) translate(-50%, -50%) scale(${pointer.hot ? 2.6 : 1})`;
+  }
+  if (t < INTRO && !introFrozen || frame === 'intro') boot.textContent = `tracing · ${String(Math.round(ease(t, .3, 1.5) * 100)).padStart(3, '0')}`;
+  const state: FrameState = {
+    time: now,
+    outlineReveal: ease(t, .3, 1.5),
+    outlineOpacity: 1 - beautyFade * .82,
+    wireReveal: ease(t, 1.4, 1.4),
+    wireOpacity: 1 - ease(t, 3.0, .6),
+    beautyFade,
+    rimGhost: (1 - beautyFade) * ease(t, 2.6, 1.0) * (1 - ease(progress, .06, OPEN)) * .3,
+    settle: ease(progress, .86, .12),
+    pointer: { x: pointer.x, y: pointer.y },
+    spin,
+    light: Math.min(1, t / 2.2) * (pointer.seen ? 1 : .35),
+    horizon: ease(progress, .84, .14),
+    word: ease(progress, .88, .12),
+    panels: views,
+  };
+  if (!document.hidden) scene?.render(state);
+}
+
+function finishIntro() {
+  if (document.body.dataset.intro !== 'running') return;
+  document.body.dataset.intro = 'done';
+  document.body.dataset.ui = 'on';
+  lenis?.start();
+  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => jump(value)); }
+}
+function skipIntro() {
+  if (introFrozen || introTime >= INTRO) return;
+  gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; } });
+}
 function tick(time: number) {
   lenis?.raf(time * 1000);
-  if (!document.hidden) draw(time);
+  draw(time);
+}
+function onScroll() {
+  if (lenis) spinVelocity = THREE_CLAMP(lenis.velocity * .012, -1.6, 1.6);
+  const max = document.documentElement.scrollHeight - innerHeight;
+  progress = max > 0 ? clamp01(scrollY / max) : 0;
+  if (motion.matches || !scene) draw(performance.now() / 1000);
 }
 function updateMotion() {
   lenis?.destroy(); lenis = undefined;
   gsap.ticker.remove(tick);
+  if (motion.matches) { introTime = INTRO; finishIntro(); }
   if (!motion.matches && scene) {
-    lenis = new Lenis({ lerp: .085, smoothWheel: true, syncTouch: false });
-    lenis.on('scroll', ScrollTrigger.update);
+    lenis = new Lenis({ lerp: .08, smoothWheel: true, syncTouch: false });
+    lenis.on('scroll', onScroll);
+    if (document.body.dataset.intro === 'running') lenis.stop();
     if (!document.hidden) gsap.ticker.add(tick);
   }
-  draw();
+  onScroll();
 }
 function visibility() {
   gsap.ticker.remove(tick);
+  lastTick = 0;
   if (!document.hidden && !motion.matches && scene) gsap.ticker.add(tick);
 }
-function resize() { scene?.resize(); ScrollTrigger.refresh(); draw(); }
+function resize() { scene?.resize(); for (const panel of panels) panel.open = -1; onScroll(); }
 function jump(value: number) {
+  if (document.body.dataset.intro === 'running') { pendingJump = value; progress = value; draw(performance.now() / 1000); return; }
   const top = value * (document.documentElement.scrollHeight - innerHeight);
-  if (lenis) lenis.scrollTo(top, { immediate: true }); else window.scrollTo(0, top);
-  ScrollTrigger.update(); progress = value; draw();
+  if (lenis) lenis.scrollTo(top, { immediate: true, force: true }); else scrollTo(0, top);
+  progress = value;
+  draw(performance.now() / 1000);
 }
-function hashJump(event: MouseEvent) {
+function click(event: MouseEvent) {
   const target = (event.target as Element).closest<HTMLAnchorElement>('a[href^="#"]');
   if (!target) return;
   event.preventDefault();
-  jump(target.hash === '#orbit' ? 0 : .92);
+  skipIntro();
+  if (!about.hidden) setAbout(false);
+  jump(target.hash === '#waitlist' ? 1 : 0);
   if (target.hash === '#waitlist') email.focus({ preventScroll: true });
 }
 function submit(event: SubmitEvent) {
   event.preventDefault();
   if (!form.reportValidity()) return;
-  // TODO: connect the approved waitlist endpoint; no address is stored or sent yet.
-  select('#form-message').textContent = 'TRANSMISSION RECEIVED — DEMO ONLY. YOUR ADDRESS HAS NOT BEEN STORED.';
-  select<HTMLButtonElement>('#access-form button').textContent = 'You’re on approach ✓';
+  // TODO: post to the waitlist endpoint once one is chosen; nothing is stored yet.
+  select('#form-message').textContent = 'received · demo only, your address was not stored';
+  select<HTMLButtonElement>('#access-form button').textContent = 'on approach ✓';
   email.value = '';
+}
+function setAbout(open: boolean) {
+  aboutToggle.setAttribute('aria-expanded', String(open));
+  document.body.dataset.about = open ? 'on' : 'off';
+  for (const region of [host, select('.hud'), select('.rail')]) region.inert = open;
+  if (open) {
+    about.hidden = false;
+    requestAnimationFrame(() => { about.classList.add('on'); select<HTMLButtonElement>('#about .close').focus({ preventScroll: true }); });
+    lenis?.stop();
+  } else {
+    about.classList.remove('on');
+    setTimeout(() => { if (!about.classList.contains('on')) about.hidden = true; }, 900);
+    if (document.body.dataset.intro === 'done') lenis?.start();
+    aboutToggle.focus({ preventScroll: true });
+  }
+}
+async function toggleSound() {
+  const on = soundButton.getAttribute('aria-pressed') === 'true';
+  if (on) ambient.stop(); else await ambient.start();
+  soundButton.setAttribute('aria-pressed', String(!on));
+  soundButton.setAttribute('aria-label', on ? 'Ambient sound off' : 'Ambient sound on');
 }
 function contextLost(event: Event) {
   event.preventDefault();
   gsap.ticker.remove(tick);
   lenis?.destroy(); lenis = undefined;
   scene?.dispose(); scene = undefined;
-  canvas.hidden = true; select('#fallback').hidden = false;
+  canvas.hidden = true;
+  select('#fallback').hidden = false;
   document.body.dataset.renderer = 'fallback';
+  finishIntro();
 }
-function dispose() {
-  if (disposed) return;
-  disposed = true;
-  gsap.ticker.remove(tick); trigger.kill(); lenis?.destroy(); scene?.dispose();
-  motion.removeEventListener('change', updateMotion);
-  document.removeEventListener('visibilitychange', visibility);
-  window.removeEventListener('resize', resize);
-  document.removeEventListener('click', hashJump);
-  form.removeEventListener('submit', submit);
-  canvas.removeEventListener('webglcontextlost', contextLost);
-}
+
+document.body.dataset.intro = frame && frame !== 'intro' ? 'done' : 'running';
+if (document.body.dataset.intro === 'done') { introTime = INTRO; document.body.dataset.ui = 'on'; }
 motion.addEventListener('change', updateMotion);
 document.addEventListener('visibilitychange', visibility);
-window.addEventListener('resize', resize);
-document.addEventListener('click', hashJump);
+addEventListener('resize', resize);
+addEventListener('scroll', onScroll, { passive: true });
+addEventListener('wheel', skipIntro, { passive: true });
+addEventListener('touchstart', skipIntro, { passive: true });
+addEventListener('keydown', skipIntro);
+document.addEventListener('click', click);
+addEventListener('pointermove', event => {
+  pointer.seen = true;
+  pointer.tx = (event.clientX / innerWidth) * 2 - 1;
+  pointer.ty = 1 - (event.clientY / innerHeight) * 2;
+  pointer.cx = event.clientX; pointer.cy = event.clientY;
+  pointer.hot = !!(event.target as Element).closest('a, button, input, label');
+  for (const magnet of magnets) {
+    const box = magnet.getBoundingClientRect();
+    const dx = event.clientX - (box.left + box.width / 2), dy = event.clientY - (box.top + box.height / 2);
+    const near = Math.hypot(dx, dy) < 70;
+    magnet.style.transform = near ? `translate(${dx * .28}px, ${dy * .28}px)` : '';
+  }
+  document.body.dataset.cursor = pointer.hot ? 'hot' : 'idle';
+}, { passive: true });
+document.addEventListener('pointerleave', () => { document.body.dataset.cursor = 'away'; });
 form.addEventListener('submit', submit);
+soundButton.addEventListener('click', () => { void toggleSound(); });
+aboutToggle.addEventListener('click', () => { skipIntro(); setAbout(aboutToggle.getAttribute('aria-expanded') !== 'true'); });
+select('#about .close').addEventListener('click', () => setAbout(false));
+addEventListener('keydown', event => { if (event.key === 'Escape' && !about.hidden) setAbout(false); });
 canvas.addEventListener('webglcontextlost', contextLost);
-window.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
+addEventListener('pagehide', event => { if (!event.persisted) { gsap.ticker.remove(tick); lenis?.destroy(); scene?.dispose(); ambient.dispose(); } });
 updateMotion();
 await document.fonts.ready;
-ScrollTrigger.refresh();
-const frame = new URLSearchParams(location.search).get('frame');
-const frames: Record<string, number> = { orbit: .035, loop: .425, arrival: .94 };
-if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
-else if (location.hash === '#waitlist') jump(.92);
+await document.fonts.load('500 380px Switzer').catch(() => undefined);
+scene?.setWordmark('MARS', "500 380px Switzer, 'General Sans', sans-serif");
+const frames: Record<string, number> = { rest: 0, mid: .48, full: .72, close: .845, beauty: .97 };
+if (frame === 'intro' && !motion.matches) { introTime = 1.9; introFrozen = true; }
+else if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
+else if (location.hash === '#waitlist') jump(1);
+if (document.body.dataset.intro === 'running' && !introFrozen) setTimeout(() => { introTime = INTRO; finishIntro(); }, INTRO * 1000 + 600);
 document.body.dataset.ready = 'true';

@@ -3,70 +3,56 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#05040A" />
-    <meta name="description" content="Take an open-weights model. Teach it one workflow. Let it improve on hardware you own." />
+    <meta name="theme-color" content="#050407" />
+    <meta name="description" content="MARS: an open-weights model that masters one workflow and keeps improving itself on hardware you own." />
     <link rel="icon" href="/favicon.svg" />
-    <title>MARS — One model. One mission.</title>
+    <meta property="og:title" content="MARS" />
+    <meta property="og:description" content="An open-weights model that masters one workflow and keeps improving itself on hardware you own." />
+    <meta property="og:image" content="/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>MARS</title>
   </head>
   <body>
-    <a class="skip-link" href="#waitlist">Skip to early access</a>
+    <a class="skip-link" href="#waitlist">Skip to the waitlist</a>
+    <noscript><p class="noscript">MARS: an open-weights model that masters one workflow and keeps improving itself. Enable JavaScript to see the planet.</p></noscript>
     <canvas id="scene" aria-hidden="true"></canvas>
-    <div id="fallback" hidden aria-hidden="true"><div></div></div>
-    <header class="nav">
-      <a class="brand" href="#orbit" aria-label="MARS home">MARS<span class="brand-orbit">®</span></a>
-      <a class="nav-access" href="#waitlist">Early access <span aria-hidden="true">↗</span></a>
+    <div id="fallback" hidden aria-hidden="true"><svg viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="43" ry="46" /></svg></div>
+    <div class="grain" aria-hidden="true"></div>
+    <div id="cursor" aria-hidden="true"></div>
+    <p id="boot" aria-hidden="true">tracing · 000</p>
+    <header class="ui corners">
+      <a class="brand magnet" href="#top">MARS</a>
+      <nav class="links"><button class="link magnet" id="about-toggle" type="button" aria-expanded="false" aria-controls="about">About</button><a class="link magnet" href="#waitlist">Waitlist</a></nav>
     </header>
-    <main id="journey" aria-label="The MARS journey">
-      <section id="orbit" class="scroll-chapter" aria-label="Orbit"></section>
-      <section id="launch" class="scroll-chapter" aria-label="Launch"></section>
-      <section id="loop" class="scroll-chapter" aria-label="The loop"></section>
-      <section id="approach" class="scroll-chapter" aria-label="Approach"></section>
-      <section id="waitlist" class="scroll-chapter" aria-label="Arrival and early access"></section>
-    </main>
-    <div class="stage">
-      <section class="chapter orbit" data-chapter="orbit">
-        <p class="eyebrow mission-label">MARS — MASTERY · RECURSIVE SELF-IMPROVEMENT</p>
-        <div class="orbit-copy">
-          <p class="chapter-kicker">01 / ORBIT</p>
-          <h1>Your model,<br />sent to Mars.</h1>
-          <p class="body-copy">Take an open-weights model. Teach it one workflow. Let it fine-tune itself on what actually worked — on hardware you own.</p>
-        </div>
-        <p class="orbit-coordinate eyebrow">SOL 001 <span>25° N / 071° E</span></p>
-      </section>
-      <section class="chapter launch" data-chapter="launch" hidden>
-        <p class="eyebrow mission-label">02 / LAUNCH</p>
-        <div class="transition-copy"><h2 id="launch-copy">General models know a little about everything.</h2></div>
-      </section>
-      <section class="chapter loop" data-chapter="loop" hidden>
-        <p class="eyebrow mission-label">03 / THE LEARNING LOOP</p>
-        <div class="loop-copy">
-          <div class="loop-index" aria-hidden="true">01<span>/04</span></div>
-          <h2 id="loop-title">Observe</h2>
-          <p id="loop-description" class="body-copy">Capture real traces from your workflow. Not benchmarks.</p>
-          <div class="phase-track" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i></div>
-          <p class="eyebrow loop-caption">THE WORK BECOMES THE TEACHER.</p>
-        </div>
-        <p class="eyebrow ring-coordinate">CONTINUOUS IMPROVEMENT <span>↻</span></p>
-      </section>
-      <section class="chapter approach" data-chapter="approach" hidden>
-        <p class="eyebrow mission-label">04 / APPROACH</p>
-        <div class="transition-copy"><h2 id="approach-copy">Open weights. Yours.</h2></div>
-      </section>
-      <section class="chapter arrival" data-chapter="arrival" hidden>
-        <p class="eyebrow mission-label">05 / ARRIVAL <span>BLUE HOUR ON MARS</span></p>
-        <div class="arrival-copy">
-          <h2>Every mission starts<br />with one task.</h2>
-          <form id="access-form">
-            <label class="sr-only" for="email">Email address</label>
-            <div class="form-line"><input id="email" name="email" type="email" placeholder="Your email address" autocomplete="email" required /><button type="submit">Request early access <span aria-hidden="true">↗</span></button></div>
-            <p id="form-message" class="eyebrow" role="status">ONE TRANSMISSION WHEN WE'RE READY.</p>
-          </form>
-        </div>
-        <footer><span class="footer-wordmark" aria-hidden="true">MARS</span><p class="eyebrow">OPEN WEIGHTS. OPEN HORIZONS.<span>© 2026 MARS</span></p></footer>
-      </section>
+    <section id="about" class="window" hidden aria-label="About MARS">
+      <div class="bar"><i></i><i></i><i></i><span>about · mars</span><button type="button" class="close" aria-label="Close">esc</button></div>
+      <div class="body">
+        <p>MARS takes an open-weights model and sends it on one mission: your workflow. Not a benchmark, not a demo set. The actual tasks your team runs.</p>
+        <p>The loop is short. <b>Observe</b> real traces. <b>Evaluate</b> every output against evals you write as code. <b>Refine</b> by fine-tuning on what passed. <b>Ascend</b> only when the new weights beat the old ones. Then go again.</p>
+        <p>Day 100 beats day 1. The weights stay yours, small enough to run on hardware you own.</p>
+        <p class="meta">M·A·S for mastery, R for the recursive self-improvement loop. Built in the open for developers; early access by waitlist.</p>
+      </div>
+    </section>
+    <div class="panels" aria-hidden="true"></div>
+    <div class="ui hud">
+      <span id="counter" aria-live="polite">iter 000</span>
+      <span class="tag">mastery · recursive self-improvement</span>
+      <span id="hint">scroll</span>
     </div>
-    <aside class="journey-hud" aria-label="Journey progress"><span id="chapter-indicator">01 — ORBIT</span><div class="progress-line"><i></i></div><span class="scroll-hint">SCROLL TO EXPLORE ↓</span></aside>
-    <template id="sound-slot"><button type="button" aria-pressed="false">Ambient audio off</button></template>
+    <section id="waitlist" class="end" aria-label="Waitlist">
+      <p class="end-copy">Every mission starts with one task.</p>
+      <form id="access-form">
+        <label class="sr-only" for="email">Email address</label>
+        <input id="email" name="email" type="email" placeholder="you@domain.com" autocomplete="email" required />
+        <button type="submit">request access</button>
+        <p id="form-message" role="status">demo · nothing is stored yet</p>
+      </form>
+    </section>
+    <button id="sound" class="ui magnet" type="button" aria-pressed="false" aria-label="Ambient sound off">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z" /><path class="wave" d="M15 9.5a3.5 3.5 0 0 1 0 5" /><path class="wave" d="M17.5 7a7 7 0 0 1 0 10" /></svg>
+    </button>
+    <div class="rail ui" aria-hidden="true"><i></i><b></b><b></b><b></b><b></b><b></b></div>
+    <div id="track"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

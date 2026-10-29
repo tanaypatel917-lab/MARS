@@ -1,201 +1,266 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import * as shader from './shaders';
+import { planetGeometry, wireGeometry } from './geometry';
 
-const smooth = (a: number, b: number, x: number) => THREE.MathUtils.smoothstep(x, a, b);
-function random(seed: number) {
-  let value = seed;
-  return () => { value = (Math.imul(value, 1664525) + 1013904223) >>> 0; return value / 4294967296; };
+export type Pass = 'wireframe' | 'observe' | 'evaluate' | 'refine' | 'beauty';
+/** A panel's inner viewport in CSS pixels, measured from the top-left of the page. */
+export interface PanelView { pass: Pass; x: number; y: number; w: number; h: number }
+export interface FrameState {
+  time: number;
+  outlineReveal: number;
+  outlineOpacity: number;
+  wireReveal: number;
+  wireOpacity: number;
+  beautyFade: number;
+  /** Faint blue limb shown inside the outline while the planet is still unrendered. */
+  rimGhost: number;
+  /** 0..1: the finished planet settles up and slightly smaller to clear the waitlist. */
+  settle: number;
+  /** Pointer in -1..1 (x right, y up) and extra spin from scroll velocity. */
+  pointer: { x: number; y: number };
+  spin: number;
+  light: number;
+  horizon: number;
+  word: number;
+  panels: PanelView[];
 }
+
+const BACKGROUND = new THREE.Color(0x050407);
+const PASS_BACKGROUND: Record<Pass, THREE.Color> = {
+  wireframe: new THREE.Color(0x070608),
+  observe: new THREE.Color(0x0a0a0b),
+  evaluate: new THREE.Color(0x08070d),
+  refine: new THREE.Color(0x5a17b0),
+  beauty: new THREE.Color(0x050407),
+};
 
 export class MarsScene {
   readonly renderer: THREE.WebGLRenderer;
-  readonly camera = new THREE.PerspectiveCamera(40, 1, .1, 250);
-  private readonly scene = new THREE.Scene();
-  private readonly composer: EffectComposer;
-  private readonly bloom: UnrealBloomPass;
-  private readonly grade: ShaderPass;
-  private readonly materials: THREE.ShaderMaterial[] = [];
-  private readonly geometries: THREE.BufferGeometry[] = [];
-  private readonly planet: THREE.Mesh;
-  private readonly atmosphere: THREE.Mesh;
-  private readonly ring: THREE.Mesh;
-  private readonly particles: THREE.Mesh;
-  private readonly terrain: THREE.Mesh;
-  private readonly sky: THREE.Mesh;
-  private readonly stars: THREE.Points;
-  private readonly starMaterial: THREE.PointsMaterial;
-  private aspect = 1;
-  private readonly center = new THREE.Vector3();
-  private readonly edge = new THREE.Vector3();
+  readonly camera = new THREE.PerspectiveCamera(30, 1, .5, 30);
+  private readonly bodies: THREE.Object3D[] = [];
+  private readonly passes: Record<Pass, THREE.Scene>;
+  private readonly maskScene = new THREE.Scene();
+  private readonly outlineScene = new THREE.Scene();
+  private readonly voidScene = new THREE.Scene();
+  private readonly rimScene = new THREE.Scene();
+  private readonly voidMaterial: THREE.ShaderMaterial;
+  private readonly mask: THREE.WebGLRenderTarget;
+  private readonly outline: THREE.ShaderMaterial;
+  private readonly wire: THREE.ShaderMaterial;
+  private readonly beauty: THREE.ShaderMaterial;
+  private readonly atmosphere: THREE.ShaderMaterial;
+  private readonly transmission: THREE.ShaderMaterial;
+  private readonly dusk: THREE.Mesh;
+  private readonly refineBackdrop: THREE.Mesh;
+  private readonly disposables: { dispose(): void }[] = [];
+  private readonly scissor = new THREE.Vector4();
+  /** Key light in view space; it drifts slowly so the finished planet keeps living. */
+  private readonly key = new THREE.Vector3(-.62, .5, .6);
+  private ratio = 1;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
-    this.renderer.setClearColor(0x05040a);
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+    this.renderer.autoClear = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.camera.position.set(0, 0, 8);
-    const plane = new THREE.PlaneGeometry(2, 2);
-    this.geometries.push(plane);
-    this.sky = this.mesh(plane, shader.fullscreenVertex, shader.skyFragment, {
-      uArrival: { value: 0 }, uTime: { value: 0 }, uAspect: { value: 1 },
+    const mobile = Math.min(innerWidth, innerHeight) < 700;
+    const body = planetGeometry(mobile ? 22 : 36);
+    const wire = wireGeometry(mobile ? 160 : 260);
+    const shell = body.clone().scale(1.03, 1.03, 1.03);
+    const quad = new THREE.PlaneGeometry(2, 2);
+    this.disposables.push(body, wire, shell, quad);
+    const material = (fragmentShader: string, uniforms: Record<string, THREE.IUniform> = {}, extra: THREE.ShaderMaterialParameters = {}) => {
+      const m = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader, uniforms, ...extra });
+      this.disposables.push(m);
+      return m;
+    };
+    const mesh = (geometry: THREE.BufferGeometry, m: THREE.Material, scene: THREE.Scene, track = true) => {
+      const object = new THREE.Mesh(geometry, m);
+      scene.add(object);
+      if (track) this.bodies.push(object);
+      return object;
+    };
+    this.wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: 1 } }, transparent: true, depthWrite: false });
+    this.transmission = material(shader.transmissionFragment, { uTime: { value: 0 }, uRect: { value: new THREE.Vector4() } });
+    const bake = new THREE.WebGLRenderTarget(mobile ? 1024 : 2048, mobile ? 512 : 1024, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    const bakeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.bakeFragment, depthTest: false, depthWrite: false });
+    const bakeScene = new THREE.Scene();
+    bakeScene.add(new THREE.Mesh(quad, bakeMaterial));
+    this.renderer.setRenderTarget(bake);
+    this.renderer.render(bakeScene, this.camera);
+    this.renderer.setRenderTarget(null);
+    bakeMaterial.dispose();
+    this.disposables.push(bake);
+    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key } });
+    this.atmosphere = material(shader.atmosphereFragment, { uFade: { value: 1 }, uKey: { value: this.key } }, { transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.disposables.push(this.wire);
+    const wireScene = new THREE.Scene();
+    const lines = new THREE.LineSegments(wire, this.wire);
+    wireScene.add(lines);
+    this.bodies.push(lines);
+    const beautyScene = new THREE.Scene();
+    const duskMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.duskFragment, uniforms: { uRect: { value: new THREE.Vector4() } }, depthTest: false, depthWrite: false });
+    this.disposables.push(duskMaterial);
+    this.dusk = mesh(quad, duskMaterial, beautyScene, false);
+    this.dusk.renderOrder = -1;
+    this.dusk.frustumCulled = false;
+    mesh(body, this.beauty, beautyScene);
+    mesh(shell, this.atmosphere, beautyScene).renderOrder = 1;
+    mesh(shell, this.atmosphere, this.rimScene);
+    const refineScene = this.single(body, this.transmission, mesh);
+    const refineBg = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.refineFragment, uniforms: { uRect: { value: new THREE.Vector4() }, uTime: { value: 0 } }, depthTest: false, depthWrite: false });
+    this.disposables.push(refineBg);
+    this.refineBackdrop = mesh(quad, refineBg, refineScene, false);
+    this.refineBackdrop.renderOrder = -1;
+    this.refineBackdrop.frustumCulled = false;
+    this.passes = {
+      wireframe: wireScene,
+      observe: this.single(body, material(shader.uvFragment), mesh),
+      evaluate: this.single(body, material(shader.normalFragment), mesh),
+      refine: refineScene,
+      beauty: beautyScene,
+    };
+    const maskMaterial = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader: shader.maskFragment });
+    this.disposables.push(maskMaterial);
+    mesh(body, maskMaterial, this.maskScene);
+    this.mask = new THREE.WebGLRenderTarget(2, 2, { depthBuffer: true, format: THREE.RGBAFormat });
+    this.disposables.push(this.mask);
+    this.outline = new THREE.ShaderMaterial({
+      vertexShader: shader.fullscreenVertex, fragmentShader: shader.outlineFragment, transparent: true, depthTest: false, depthWrite: false,
+      uniforms: { tMask: { value: this.mask.texture }, uTexel: { value: new THREE.Vector2() }, uCenter: { value: new THREE.Vector2(.5, .5) }, uReveal: { value: 1 }, uOpacity: { value: 1 } },
     });
-    (this.sky.material as THREE.ShaderMaterial).depthTest = false;
-    (this.sky.material as THREE.ShaderMaterial).depthWrite = false;
-    this.sky.frustumCulled = false;
-    this.sky.renderOrder = -10;
-    const globe = new THREE.SphereGeometry(3.1, 160, 96);
-    this.geometries.push(globe);
-    this.planet = this.mesh(globe, shader.planetVertex, shader.planetFragment, { uTime: { value: 0 }, uMars: { value: 0 } });
-    this.atmosphere = this.mesh(plane, shader.fullscreenVertex, shader.atmosphereFragment, {
-      uCenter: { value: new THREE.Vector2() }, uRadius: { value: .4 }, uAspect: { value: 1 }, uOpacity: { value: 1 }, uTime: { value: 0 },
-    }, true);
-    this.atmosphere.frustumCulled = false;
-    this.atmosphere.renderOrder = 3;
-    (this.atmosphere.material as THREE.ShaderMaterial).depthTest = false;
-
-    const torus = new THREE.TorusGeometry(2.18, .007, 8, 360);
-    this.geometries.push(torus);
-    this.ring = this.mesh(torus, shader.ringVertex, shader.ringFragment, { uTime: { value: 0 }, uOpacity: { value: 1 }, uPhase: { value: 0 } }, true);
-    this.ring.position.x = 1.78;
-    this.ring.rotation.x = .82;
-    this.ring.rotation.z = -.25;
-
-    const quad = new THREE.PlaneGeometry(1, 1);
-    const instanced = new THREE.InstancedBufferGeometry();
-    instanced.index = quad.index;
-    instanced.attributes.position = quad.attributes.position;
-    instanced.attributes.uv = quad.attributes.uv;
-    const rng = random(42);
-    const count = window.innerWidth < 800 ? 2400 : 10000;
-    const seeds = new Float32Array(count * 3);
-    for (let i = 0; i < seeds.length; i++) seeds[i] = rng();
-    instanced.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 3));
-    instanced.instanceCount = count;
-    this.geometries.push(quad, instanced);
-    this.particles = this.mesh(instanced, shader.particleVertex, shader.particleFragment, {
-      uTime: { value: 0 }, uProgress: { value: 0 }, uPhase: { value: 0 }, uOpacity: { value: 0 },
-    }, true);
-    this.particles.frustumCulled = false;
-    (this.particles.material as THREE.ShaderMaterial).blending = THREE.AdditiveBlending;
-
-    const terrain = new THREE.PlaneGeometry(180, 145, 240, 170);
-    terrain.rotateX(-Math.PI / 2);
-    terrain.translate(0, 0, -50);
-    this.geometries.push(terrain);
-    this.terrain = this.mesh(terrain, shader.terrainVertex, shader.terrainFragment, { uOpacity: { value: 0 } }, true);
-    this.terrain.frustumCulled = false;
-    (this.terrain.material as THREE.ShaderMaterial).side = THREE.DoubleSide;
-
-    const positions = new Float32Array(500 * 3);
-    for (let i = 0; i < 500; i++) {
-      positions[i * 3] = (rng() - .5) * 80;
-      positions[i * 3 + 1] = (rng() - .5) * 48;
-      positions[i * 3 + 2] = -25 - rng() * 30;
-    }
-    const starGeometry = new THREE.BufferGeometry();
-    starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.geometries.push(starGeometry);
-    this.starMaterial = new THREE.PointsMaterial({ size: .024, color: 0x8a87aa, transparent: true, opacity: .36, depthWrite: false });
-    this.stars = new THREE.Points(starGeometry, this.starMaterial);
-    this.scene.add(this.stars);
-
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 320), .24, .6, .38);
-    this.composer.addPass(this.bloom);
-    this.grade = new ShaderPass({ uniforms: { tDiffuse: { value: null }, uTime: { value: 0 } }, vertexShader: shader.fullscreenVertex, fragmentShader: shader.gradeFragment });
-    this.composer.addPass(this.grade);
+    this.disposables.push(this.outline);
+    mesh(quad, this.outline, this.outlineScene, false).frustumCulled = false;
+    this.voidMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.voidFragment, depthTest: false, depthWrite: false,
+      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 }, uHorizon: { value: 0 }, uWord: { value: 0 }, tWord: { value: null } } });
+    this.disposables.push(this.voidMaterial);
+    mesh(quad, this.voidMaterial, this.voidScene, false).frustumCulled = false;
     this.resize();
   }
 
-  private mesh(geometry: THREE.BufferGeometry, vertexShader: string, fragmentShader: string, uniforms: Record<string, THREE.IUniform>, transparent = false) {
-    const material = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms, transparent, depthWrite: !transparent });
-    this.materials.push(material);
-    const mesh = new THREE.Mesh(geometry, material);
-    this.scene.add(mesh);
-    return mesh;
+  private single(geometry: THREE.BufferGeometry, m: THREE.Material, mesh: (g: THREE.BufferGeometry, m: THREE.Material, s: THREE.Scene) => THREE.Mesh) {
+    const scene = new THREE.Scene();
+    mesh(geometry, m, scene);
+    return scene;
   }
 
   resize() {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.5, Math.sqrt(2_200_000 / (width * height)));
-    this.aspect = width / height;
-    this.camera.aspect = this.aspect;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(ratio);
+    const width = innerWidth, height = innerHeight;
+    this.ratio = Math.min(devicePixelRatio || 1, 1.5, Math.sqrt(2_400_000 / (width * height)));
+    this.renderer.setPixelRatio(this.ratio);
     this.renderer.setSize(width, height);
-    this.composer.setPixelRatio(ratio);
-    this.composer.setSize(width, height);
-    this.bloom.setSize(Math.round(width * ratio * .5), Math.round(height * ratio * .5));
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    const portrait = width / height < 1;
+    const fraction = portrait ? .78 * (width / height) : .64;
+    const halfAngle = Math.atan(Math.tan(THREE.MathUtils.degToRad(15)) * fraction);
+    this.camera.position.set(0, 0, 1.07 / Math.sin(halfAngle));
+    this.camera.lookAt(0, 0, 0);
+    this.camera.updateMatrixWorld();
+    const w = Math.round(width * this.ratio), h = Math.round(height * this.ratio);
+    this.mask.setSize(w, h);
+    this.outline.uniforms.uTexel.value.set(1 / w, 1 / h);
   }
 
-  render(progress: number, time: number) {
+  render(state: FrameState) {
     if (this.disposed) return;
-    const ringIn = smooth(.33, .43, progress);
-    const ringOut = 1 - smooth(.60, .70, progress);
-    const arrival = smooth(.76, .88, progress);
-    const phase = Math.min(3, Math.floor(THREE.MathUtils.clamp((progress - .4) / .2, 0, .999) * 4));
-    this.camera.position.set(0, arrival * 3.2, 8 + arrival * 6);
-    this.camera.lookAt(0, arrival * 6.4, -arrival * 30);
-    this.camera.updateMatrixWorld();
-    const planetVisibility = (1 - smooth(.26, .37, progress)) + smooth(.65, .74, progress) * (1 - arrival);
-    this.planet.visible = planetVisibility > .02;
-    this.planet.position.set(THREE.MathUtils.lerp(3.15, 2.4, smooth(.64, .76, progress)), -1.9, -2 + smooth(.65, .77, progress) * 3.2);
-    if (this.aspect < 1) this.planet.position.set(2.4, -3.3, -3);
-    this.planet.rotation.y = time * .008;
-    const scale = 1 - ringIn * .8 * ringOut;
-    this.planet.scale.setScalar(scale);
-    const planetMaterial = this.planet.material as THREE.ShaderMaterial;
-    planetMaterial.uniforms.uTime.value = time;
-    planetMaterial.uniforms.uMars.value = smooth(.64, .77, progress);
-    this.planet.updateMatrixWorld();
-    this.center.copy(this.planet.position).project(this.camera);
-    this.edge.copy(this.planet.position).add(new THREE.Vector3(3.1 * scale, 0, 0)).project(this.camera);
-    const atmosphere = (this.atmosphere.material as THREE.ShaderMaterial).uniforms;
-    atmosphere.uCenter.value.set(this.center.x * .5 + .5, this.center.y * .5 + .5);
-    atmosphere.uRadius.value = Math.abs(this.edge.x - this.center.x) * .5 * this.aspect;
-    atmosphere.uAspect.value = this.aspect;
-    atmosphere.uTime.value = time;
-    atmosphere.uOpacity.value = this.planet.visible ? planetVisibility * (1 - arrival) : 0;
-    this.atmosphere.visible = this.planet.visible && arrival < .9;
+    const r = this.renderer;
+    const drift = state.time * .05;
+    this.key.set(-.62 + Math.sin(drift) * .25, .5 + Math.cos(drift * .7) * .12, .6).normalize();
+    const spin = state.time * .04 + state.spin;
+    const scale = 1 - state.settle * .14;
+    for (const body of this.bodies) {
+      body.rotation.set(.18 - state.pointer.y * .10, spin + state.pointer.x * .12, -.08);
+      body.position.set(state.pointer.x * .03, state.settle * .16 + state.pointer.y * .02, 0);
+      body.scale.setScalar(scale);
+      body.updateMatrixWorld();
+    }
+    const v = this.voidMaterial.uniforms;
+    v.uPointer.value.set(state.pointer.x * .5 + .5, state.pointer.y * .5 + .5);
+    v.uAspect.value = this.camera.aspect;
+    v.uTime.value = state.time;
+    v.uLight.value = state.light;
+    v.uHorizon.value = state.horizon;
+    v.uWord.value = this.voidMaterial.uniforms.tWord.value ? state.word : 0;
+    this.transmission.uniforms.uTime.value = state.time;
+    this.beauty.uniforms.uTime.value = state.time;
+    this.wire.uniforms.uReveal.value = state.wireReveal;
+    this.wire.uniforms.uOpacity.value = state.wireOpacity;
 
-    this.ring.visible = ringIn * ringOut > .001;
-    const ringUniforms = (this.ring.material as THREE.ShaderMaterial).uniforms;
-    ringUniforms.uTime.value = time;
-    ringUniforms.uOpacity.value = ringIn * ringOut * .8;
-    ringUniforms.uPhase.value = phase;
-    this.ring.rotation.z = -.25 + time * .008;
-    const particleUniforms = (this.particles.material as THREE.ShaderMaterial).uniforms;
-    particleUniforms.uTime.value = time;
-    particleUniforms.uProgress.value = progress;
-    particleUniforms.uPhase.value = phase;
-    particleUniforms.uOpacity.value = smooth(.16, .25, progress) * (1 - smooth(.61, .71, progress)) * .85;
-    this.particles.visible = particleUniforms.uOpacity.value > .001;
-    this.starMaterial.opacity = .30 * (1 - arrival * .85) * (1 - ringIn * ringOut * .7);
-    this.terrain.visible = arrival > .001;
-    (this.terrain.material as THREE.ShaderMaterial).uniforms.uOpacity.value = arrival;
-    const skyUniforms = (this.sky.material as THREE.ShaderMaterial).uniforms;
-    skyUniforms.uArrival.value = arrival;
-    skyUniforms.uAspect.value = this.aspect;
-    skyUniforms.uTime.value = time;
-    this.grade.uniforms.uTime.value = time;
-    this.composer.render();
+    r.setRenderTarget(this.mask);
+    r.setScissorTest(false);
+    r.setClearColor(0x000000, 1);
+    r.clear(true, true, false);
+    r.render(this.maskScene, this.camera);
+    r.setRenderTarget(null);
+    r.setClearColor(BACKGROUND, 1);
+    r.clear(true, true, false);
+    r.render(this.voidScene, this.camera);
+    if (state.beautyFade > .001) {
+      this.setFade(state.beautyFade);
+      this.dusk.visible = false;
+      r.render(this.passes.beauty, this.camera);
+    }
+    if (state.rimGhost > .001 && state.beautyFade < .001) { this.setFade(state.rimGhost); r.render(this.rimScene, this.camera); }
+    if (state.wireOpacity > .001 && state.wireReveal > 0) r.render(this.passes.wireframe, this.camera);
+    const height = innerHeight;
+    for (const panel of state.panels) {
+      if (panel.w < 2 || panel.h < 2) continue;
+      this.scissor.set(Math.round(panel.x * this.ratio), Math.round((height - panel.y - panel.h) * this.ratio), Math.round(panel.w * this.ratio), Math.round(panel.h * this.ratio));
+      r.setScissorTest(true);
+      r.setScissor(this.scissor);
+      r.setClearColor(PASS_BACKGROUND[panel.pass], 1);
+      r.clear(true, true, false);
+      if (panel.pass === 'beauty') {
+        this.setFade(1);
+        this.dusk.visible = true;
+        (this.dusk.material as THREE.ShaderMaterial).uniforms.uRect.value.copy(this.scissor);
+      }
+      if (panel.pass === 'wireframe') { this.wire.uniforms.uReveal.value = 1; this.wire.uniforms.uOpacity.value = 1; }
+      if (panel.pass === 'refine') {
+        this.transmission.uniforms.uRect.value.copy(this.scissor);
+        const bg = (this.refineBackdrop.material as THREE.ShaderMaterial).uniforms;
+        bg.uRect.value.copy(this.scissor);
+        bg.uTime.value = state.time;
+      }
+      r.render(this.passes[panel.pass], this.camera);
+    }
+    r.setScissorTest(false);
+    this.outline.uniforms.uReveal.value = state.outlineReveal;
+    this.outline.uniforms.uOpacity.value = state.outlineOpacity;
+    if (state.outlineOpacity > .001 && state.outlineReveal > 0) r.render(this.outlineScene, this.camera);
+  }
+
+  /** A Canvas2D wordmark that the void pass reveals under the pointer light, after Guillaume's masked title. */
+  setWordmark(text: string, font: string) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2048; canvas.height = 512;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#fff';
+    context.font = font;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, canvas.width / 2, canvas.height / 2 + 14);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    this.disposables.push(texture);
+    this.voidMaterial.uniforms.tWord.value = texture;
+  }
+
+  private setFade(value: number) {
+    this.beauty.uniforms.uFade.value = value;
+    this.atmosphere.uniforms.uFade.value = value;
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    for (const material of this.materials) material.dispose();
-    for (const geometry of this.geometries) geometry.dispose();
-    this.starMaterial.dispose();
-    this.bloom.dispose();
-    this.grade.dispose();
-    this.composer.dispose();
+    for (const item of this.disposables) item.dispose();
     this.renderer.dispose();
   }
 }
