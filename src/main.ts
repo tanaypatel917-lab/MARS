@@ -79,6 +79,8 @@ let introTime = 0;
 let introFrozen = false;
 let lastTick = 0;
 let endShown = false;
+let pendingJump: number | undefined;
+end.inert = true;
 let lastCounter = '';
 
 try {
@@ -133,7 +135,7 @@ function draw(now: number) {
   const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, open - 1))).padStart(3, '0')}`;
   if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
   const showEnd = progress > .9;
-  if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); }
+  if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); end.inert = !showEnd; }
   document.body.dataset.scrolled = String(progress > .015);
   rail.style.transform = `scaleY(${progress})`;
   pointer.x += (pointer.tx - pointer.x) * .06;
@@ -169,6 +171,7 @@ function finishIntro() {
   document.body.dataset.intro = 'done';
   document.body.dataset.ui = 'on';
   lenis?.start();
+  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => jump(value)); }
 }
 function skipIntro() {
   if (introFrozen || introTime >= INTRO) return;
@@ -203,6 +206,7 @@ function visibility() {
 }
 function resize() { scene?.resize(); for (const panel of panels) panel.open = -1; onScroll(); }
 function jump(value: number) {
+  if (document.body.dataset.intro === 'running') { pendingJump = value; progress = value; draw(performance.now() / 1000); return; }
   const top = value * (document.documentElement.scrollHeight - innerHeight);
   if (lenis) lenis.scrollTo(top, { immediate: true, force: true }); else scrollTo(0, top);
   progress = value;

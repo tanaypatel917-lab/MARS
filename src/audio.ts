@@ -3,6 +3,7 @@ export class Ambient {
   private context?: AudioContext;
   private gain?: GainNode;
   private nodes: AudioNode[] = [];
+  private sleepTimer?: ReturnType<typeof setTimeout>;
   get on() { return !!this.context && this.context.state === 'running' && (this.gain?.gain.value ?? 0) > 0; }
   async start() {
     if (!this.context) {
@@ -37,12 +38,15 @@ export class Ambient {
       noise.start();
       this.nodes.push(noise, filter, noiseGain);
     }
+    clearTimeout(this.sleepTimer);
     await this.context.resume();
     this.gain!.gain.setTargetAtTime(.9, this.context.currentTime, 1.2);
   }
   stop() {
     if (!this.context || !this.gain) return;
     this.gain.gain.setTargetAtTime(0, this.context.currentTime, .4);
+    clearTimeout(this.sleepTimer);
+    this.sleepTimer = setTimeout(() => { void this.context?.suspend(); }, 2500);
   }
   dispose() {
     for (const node of this.nodes) if ('stop' in node) (node as AudioScheduledSourceNode).stop();

@@ -46,25 +46,39 @@ void main(){vec3 n=normalize(vNormal);float facing=max(0.,dot(n,normalize(-vView
  c+=vec3(.5,.9,1.)*pow(veins,6.)*.35;gl_FragColor=vec4(c,1.);}
 `;
 
-export const beautyFragment = /* glsl */`
-uniform float uTime;uniform float uFade;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
-${noise}
+/** Terrain functions shared by the one-time bake. */
+const terrain = /* glsl */`
 float craters(vec3 p,float scale,float depth){vec3 q=p*scale;vec3 cell=floor(q);float h=0.;
  for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++)for(int z=-1;z<=1;z++){vec3 c=cell+vec3(x,y,z);vec3 center=c+.5+(vec3(hash(c),hash(c+7.1),hash(c+3.7))-.5)*.7;
   float r=.18+hash(c+11.3)*.3;float d=length(q-center);if(hash(c+5.)>.55)continue;
   float bowl=smoothstep(r,r*.3,d)*depth;float rim=exp(-pow((d-r)/(r*.22),2.))*depth*.45;h+=rim-bowl;}
  return h;}
-float height(vec3 p){vec3 s=normalize(p);float h=fbm(s*2.6+1.7)*.65+ridged(s*7.5)*.22+fbm(s*22.)*.06;
+float height(vec3 s){float h=fbm(s*2.6+1.7)*.65+ridged(s*7.5)*.22+fbm(s*22.)*.06;
  h+=craters(s,3.2,.09)+craters(s,8.,.05)+craters(s,20.,.022);return h;}
+`;
+
+/** Bakes height (R), dust (G) and fine detail (B) into an equirectangular map once at start-up. */
+export const bakeFragment = /* glsl */`
+varying vec2 vUv;
+${noise}
+${terrain}
+void main(){float lon=(vUv.x-.5)*6.2831853;float lat=(vUv.y-.5)*3.1415926;vec3 s=vec3(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
+ gl_FragColor=vec4(height(s),smoothstep(.55,.95,fbm(s*4.+3.3)),fbm(s*40.),1.);}
+`;
+
+export const beautyFragment = /* glsl */`
+uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
+float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
+vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
 void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
  vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
- float e=.004;float h0=height(s);float hx=height(normalize(s+t*e));float hy=height(normalize(s+b*e));
+ float e=.004;vec3 m0=texture2D(tTerrain,toUv(s)).rgb;float h0=m0.r;float hx=texture2D(tTerrain,toUv(normalize(s+t*e))).r;float hy=texture2D(tTerrain,toUv(normalize(s+b*e))).r;
  vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.);
  vec3 key=normalize(vec3(-.62,.5,.6));vec3 fill=normalize(vec3(.6,-.25,.75));
  float diffuse=max(0.,dot(pn,key));float soft=max(0.,dot(n,key));float wrap=pow(max(0.,dot(pn,fill)),1.4);
- float lowland=smoothstep(.25,.6,h0);float dust=smoothstep(.55,.95,fbm(s*4.+3.3));
+ float lowland=smoothstep(.25,.6,h0);float dust=m0.g;
  vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.36,.19,.12);
- vec3 albedo=mix(basalt,rust,lowland);albedo=mix(albedo,pale,dust*lowland*.45);albedo*=.8+.4*fbm(s*40.);
+ vec3 albedo=mix(basalt,rust,lowland);albedo=mix(albedo,pale,dust*lowland*.45);albedo*=.8+.4*m0.b;
  float fresnel=pow(1.-max(0.,dot(n,eye)),3.2);vec3 rimColor=mix(vec3(.22,.38,1.),vec3(.52,.30,.95),smoothstep(-.6,.6,n.y));
  float terminator=smoothstep(-.08,.35,dot(n,key));vec3 c=albedo*(diffuse*terminator*1.7*vec3(1.,.93,.84)+.012)+albedo*wrap*vec3(.07,.11,.30)+rimColor*fresnel*(.12+soft*.75);
  float spec=pow(max(0.,dot(reflect(-key,pn),eye)),28.)*.08*lowland;c+=spec;

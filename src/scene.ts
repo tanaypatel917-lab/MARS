@@ -76,7 +76,16 @@ export class MarsScene {
     };
     this.wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: 1 } }, transparent: true, depthWrite: false });
     this.transmission = material(shader.transmissionFragment, { uTime: { value: 0 } });
-    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 } });
+    const bake = new THREE.WebGLRenderTarget(mobile ? 1024 : 2048, mobile ? 512 : 1024, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    const bakeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.bakeFragment, depthTest: false, depthWrite: false });
+    const bakeScene = new THREE.Scene();
+    bakeScene.add(new THREE.Mesh(quad, bakeMaterial));
+    this.renderer.setRenderTarget(bake);
+    this.renderer.render(bakeScene, this.camera);
+    this.renderer.setRenderTarget(null);
+    bakeMaterial.dispose();
+    this.disposables.push(bake);
+    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) } });
     this.atmosphere = material(shader.atmosphereFragment, { uFade: { value: 1 } }, { transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
     this.disposables.push(this.wire);
     const wireScene = new THREE.Scene();
