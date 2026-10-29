@@ -11,7 +11,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:1px solid var(-
 .ui{opacity:0;transition:opacity .6s ease}body[data-ui=on] .ui{opacity:1}
 .corners{position:fixed;z-index:6;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:22px var(--edge);font-size:14px;letter-spacing:-.01em}
 .brand{font:500 15px/1 Switzer,sans-serif;letter-spacing:.02em}.link{color:var(--muted);transition:color .3s}.link:hover{color:var(--ink)}
-.panels{z-index:2}.panel{position:absolute;overflow:hidden;border:1px solid var(--line);border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
+.panels{z-index:2;overflow:hidden}.panel{position:absolute;overflow:hidden;border:1px solid var(--line);border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
 .panel .bar{height:var(--bar);display:flex;align-items:center;gap:5px;padding:0 9px;background:#141214;border-bottom:1px solid rgba(0,0,0,.6);font:400 10px/1 'Commit Mono',monospace;color:#8e8880;letter-spacing:.02em;white-space:nowrap}
 .panel .bar i{width:6px;height:6px;border-radius:50%;background:#403c3e}.panel .bar span{margin-left:8px}
 .hud{position:fixed;z-index:6;left:0;right:0;bottom:22px;display:flex;justify-content:center;gap:28px;font:400 10px/1 'Commit Mono',monospace;color:var(--muted);letter-spacing:.06em;pointer-events:none}
@@ -25,6 +25,8 @@ body[data-scrolled=true] #hint{opacity:0}
 #cursor{position:fixed;z-index:30;left:0;top:0;width:7px;height:7px;border-radius:50%;background:var(--ink);pointer-events:none;mix-blend-mode:difference;transition:opacity .3s;opacity:0}
 body[data-cursor=idle] #cursor,body[data-cursor=hot] #cursor{opacity:1}body[data-cursor=hot] #cursor{background:#fff}@media(pointer:coarse){#cursor{display:none}}
 body[data-cursor=idle] a,body[data-cursor=idle] button,body[data-cursor=hot] a,body[data-cursor=hot] button,body[data-cursor=idle],body[data-cursor=hot]{cursor:none}
+.magnet{transition:transform .5s cubic-bezier(.625,.05,0,1);will-change:transform}
+.rail{position:fixed;z-index:6;right:var(--edge);top:50%;height:120px;width:1px;transform:translateY(-50%);background:rgba(236,230,220,.12)}.rail i{position:absolute;inset:0;background:var(--ink);transform-origin:top;transform:scaleY(0)}.rail b{position:absolute;left:-2px;width:5px;height:1px;background:rgba(236,230,220,.4)}.rail b:nth-child(2){top:8%}.rail b:nth-child(3){top:30%}.rail b:nth-child(4){top:52%}.rail b:nth-child(5){top:74%}.rail b:nth-child(6){top:96%}
 #boot{position:fixed;z-index:6;left:0;right:0;bottom:22px;margin:0;text-align:center;font:400 10px/1 'Commit Mono',monospace;letter-spacing:.06em;color:var(--muted);transition:opacity .5s}body[data-intro=done] #boot{opacity:0}
 #access-form{display:flex;flex-direction:column;align-items:center;gap:12px}
 #access-form input{width:280px;background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;color:var(--ink);padding:8px 0;font-size:13px;text-align:center;outline-offset:3px}#access-form input::placeholder{color:#5c5751}
@@ -33,5 +35,5 @@ body[data-cursor=idle] a,body[data-cursor=idle] button,body[data-cursor=hot] a,b
 #track{height:720vh;pointer-events:none}body[data-intro=running] #track{height:100vh}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .skip-link{position:fixed;z-index:20;left:20px;top:15px;transform:translateY(-200%);background:var(--bg);padding:14px}.skip-link:focus{transform:none}
-@media(max-width:700px){:root{--edge:18px;--bar:20px}.panel .bar{font-size:8px}.hud{gap:14px;font-size:8px}.tag{display:none}#hint{display:none}}
+@media(max-width:700px){:root{--edge:18px;--bar:20px}.rail{display:none}.panel .bar{font-size:8px}.hud{gap:14px;font-size:8px}.tag{display:none}#hint{display:none}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}

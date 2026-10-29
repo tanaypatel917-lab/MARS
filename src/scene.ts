@@ -18,6 +18,8 @@ export interface FrameState {
   pointer: { x: number; y: number };
   spin: number;
   light: number;
+  horizon: number;
+  word: number;
   panels: PanelView[];
 }
 
@@ -108,7 +110,7 @@ export class MarsScene {
     this.disposables.push(this.outline);
     mesh(quad, this.outline, this.outlineScene, false).frustumCulled = false;
     this.voidMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.voidFragment, depthTest: false, depthWrite: false,
-      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 } } });
+      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 }, uHorizon: { value: 0 }, uWord: { value: 0 }, tWord: { value: null } } });
     this.disposables.push(this.voidMaterial);
     mesh(quad, this.voidMaterial, this.voidScene, false).frustumCulled = false;
     this.resize();
@@ -154,6 +156,8 @@ export class MarsScene {
     v.uAspect.value = this.camera.aspect;
     v.uTime.value = state.time;
     v.uLight.value = state.light;
+    v.uHorizon.value = state.horizon;
+    v.uWord.value = this.voidMaterial.uniforms.tWord.value ? state.word : 0;
     this.transmission.uniforms.uTime.value = state.time;
     this.beauty.uniforms.uTime.value = state.time;
     this.wire.uniforms.uReveal.value = state.wireReveal;
@@ -194,6 +198,27 @@ export class MarsScene {
     this.outline.uniforms.uReveal.value = state.outlineReveal;
     this.outline.uniforms.uOpacity.value = state.outlineOpacity;
     if (state.outlineOpacity > .001 && state.outlineReveal > 0) r.render(this.outlineScene, this.camera);
+  }
+
+  /** A Canvas2D wordmark that the void pass reveals under the pointer light, after Guillaume's masked title. */
+  setWordmark(text: string, font: string) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2048; canvas.height = 512;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.fillStyle = '#000';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#fff';
+    context.font = font;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, canvas.width / 2, canvas.height / 2 + 14);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+    this.disposables.push(texture);
+    this.voidMaterial.uniforms.tWord.value = texture;
   }
 
   private setFade(value: number) {

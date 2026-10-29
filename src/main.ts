@@ -15,14 +15,16 @@ interface Panel { pass: Pass; label: string; x: number; y: number; w: number; h:
 const INTRO = 3.7;
 const OPEN = .09;
 const CLOSE_START = .78;
+/** Panel rects in planet units: offsets from the planet centre and sizes as multiples of its on-screen radius, so the composition survives any viewport. */
 const layout: Omit<Panel, 'open' | 'element'>[] = [
-  { pass: 'wireframe', label: 'iter 000 · wireframe', x: .33, y: .24, w: .32, h: .44 },
-  { pass: 'observe', label: 'iter 001 · observe', x: .35, y: .60, w: .19, h: .32 },
-  { pass: 'evaluate', label: 'iter 002 · evaluate', x: .38, y: .02, w: .28, h: .26 },
-  { pass: 'refine', label: 'iter 003 · refine', x: .22, y: .25, w: .25, h: .26 },
-  { pass: 'beauty', label: 'iter 004 · beauty', x: .47, y: .36, w: .22, h: .24 },
-  { pass: 'beauty', label: 'iter 004 · beauty', x: .615, y: .21, w: .36, h: .54 },
+  { pass: 'wireframe', label: 'iter 000 · wireframe', x: -.85, y: -.81, w: 1.6, h: 1.375 },
+  { pass: 'observe', label: 'iter 001 · observe', x: -.75, y: .31, w: .95, h: 1.0 },
+  { pass: 'evaluate', label: 'iter 002 · evaluate', x: -.6, y: -1.5, w: 1.4, h: .81 },
+  { pass: 'refine', label: 'iter 003 · refine', x: -1.4, y: -.78, w: 1.25, h: .81 },
+  { pass: 'beauty', label: 'iter 004 · beauty', x: -.15, y: -.44, w: 1.1, h: .75 },
+  { pass: 'beauty', label: 'iter 004 · beauty', x: .58, y: -.91, w: 1.8, h: 1.69 },
 ];
+const planetRadius = () => innerWidth / innerHeight < 1 ? .39 * innerWidth : .32 * innerHeight;
 const select = <T extends Element = HTMLElement>(selector: string) => {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
@@ -66,6 +68,8 @@ function scramble(element: HTMLElement, text: string, duration = .5) {
     element.textContent = out.trimEnd();
   }, onComplete() { element.textContent = text; } });
 }
+const rail = select('.rail i');
+const magnets = [...document.querySelectorAll<HTMLElement>('.magnet')];
 const endCopy = select('.end-copy');
 endCopy.innerHTML = (endCopy.textContent ?? '').split(' ').map((word, i) => `<span class="word"><span style="transition-delay:${i * 45}ms">${word}</span></span>`).join(' ');
 let scene: MarsScene | undefined;
@@ -87,29 +91,31 @@ try {
   document.body.dataset.renderer = 'fallback';
 }
 
-function panelViews(time: number): PanelView[] {
-  const width = innerWidth, height = innerHeight;
+function panelViews(): PanelView[] {
+  const radius = planetRadius(), cx = innerWidth / 2, cy = innerHeight / 2;
   const bar = Math.min(innerWidth, innerHeight) < 700 ? 20 : 24;
   const views: PanelView[] = [];
   panels.forEach((panel, i) => {
     const opening = ease(progress, .06 + i * .12, OPEN);
     const closing = ease(progress, CLOSE_START + (panels.length - 1 - i) * .012, .07);
     const open = opening * (1 - closing);
-    const w = Math.round(panel.w * width * open), h = Math.round(panel.h * height * open);
-    if (open !== panel.open) {
+    const tear = opening > .02 && opening < .5 ? Math.round((Math.random() - .5) * 10 * (1 - opening * 2)) : 0;
+    const left = Math.round(cx + panel.x * radius) + tear, top = Math.round(cy + panel.y * radius);
+    const fullWidth = Math.round(panel.w * radius);
+    const w = Math.round(fullWidth * open), h = Math.round(panel.h * radius * open);
+    if (open !== panel.open || tear) {
       panel.open = open;
       const style = panel.element.style;
-      style.left = `${Math.round(panel.x * width)}px`;
-      style.top = `${Math.round(panel.y * height)}px`;
+      style.left = `${left}px`;
+      style.top = `${top}px`;
       style.width = `${w}px`;
       style.height = `${h}px`;
       style.display = w > 48 && h > bar + 10 ? '' : 'none';
       style.zIndex = String(i);
-      (panel.element.firstElementChild as HTMLElement).style.width = `${Math.round(panel.w * width)}px`;
+      (panel.element.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
     }
-    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: Math.round(panel.x * width) + 1, y: Math.round(panel.y * height) + bar + 1, w: w - 2, h: h - bar - 2 });
+    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2 });
   });
-  void time;
   return views;
 }
 
@@ -121,7 +127,7 @@ function draw(now: number) {
     if (introTime >= INTRO) finishIntro();
   }
   const t = introTime;
-  const views = panelViews(now);
+  const views = panelViews();
   const open = panels.filter(p => p.open > .5).length;
   const beautyFade = ease(progress, .80, .12);
   const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, open - 1))).padStart(3, '0')}`;
@@ -129,6 +135,7 @@ function draw(now: number) {
   const showEnd = progress > .9;
   if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); }
   document.body.dataset.scrolled = String(progress > .015);
+  rail.style.transform = `scaleY(${progress})`;
   pointer.x += (pointer.tx - pointer.x) * .06;
   pointer.y += (pointer.ty - pointer.y) * .06;
   spinVelocity *= .92;
@@ -150,6 +157,8 @@ function draw(now: number) {
     pointer: { x: pointer.x, y: pointer.y },
     spin,
     light: Math.min(1, t / 2.2) * (pointer.seen ? 1 : .35),
+    horizon: ease(progress, .84, .14),
+    word: ease(progress, .88, .12),
     panels: views,
   };
   if (!document.hidden) scene?.render(state);
@@ -248,6 +257,12 @@ addEventListener('pointermove', event => {
   pointer.ty = 1 - (event.clientY / innerHeight) * 2;
   pointer.cx = event.clientX; pointer.cy = event.clientY;
   pointer.hot = !!(event.target as Element).closest('a, button, input, label');
+  for (const magnet of magnets) {
+    const box = magnet.getBoundingClientRect();
+    const dx = event.clientX - (box.left + box.width / 2), dy = event.clientY - (box.top + box.height / 2);
+    const near = Math.hypot(dx, dy) < 70;
+    magnet.style.transform = near ? `translate(${dx * .28}px, ${dy * .28}px)` : '';
+  }
   document.body.dataset.cursor = pointer.hot ? 'hot' : 'idle';
 }, { passive: true });
 document.addEventListener('pointerleave', () => { document.body.dataset.cursor = 'away'; });
@@ -257,6 +272,8 @@ canvas.addEventListener('webglcontextlost', contextLost);
 addEventListener('pagehide', event => { if (!event.persisted) { gsap.ticker.remove(tick); lenis?.destroy(); scene?.dispose(); ambient.dispose(); } });
 updateMotion();
 await document.fonts.ready;
+await document.fonts.load('500 380px Switzer').catch(() => undefined);
+scene?.setWordmark('MARS', "500 380px Switzer, 'General Sans', sans-serif");
 const frames: Record<string, number> = { rest: 0, mid: .48, full: .72, close: .845, beauty: .97 };
 if (frame === 'intro' && !motion.matches) { introTime = 1.9; introFrozen = true; }
 else if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
