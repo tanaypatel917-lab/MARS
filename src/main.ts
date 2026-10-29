@@ -153,7 +153,7 @@ function draw(now: number) {
   const caption = CAPTIONS[progress > .9 ? 6 : beautyFade > .5 ? 5 : Math.min(5, stage)];
   if (caption !== lastCaption) { if (lastCaption && open > 0 && !motion.matches) ambient.tick(); lastCaption = caption; scramble(tag, caption, .7); }
   const showEnd = progress > .9;
-  if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); end.inert = !showEnd; }
+  if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); end.inert = !showEnd; document.body.dataset.end = showEnd ? 'on' : 'off'; }
   document.body.dataset.scrolled = String(progress > .015);
   rail.style.transform = `scaleY(${progress})`;
   pointer.x += (pointer.tx - pointer.x) * .06;
