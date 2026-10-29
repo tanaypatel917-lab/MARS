@@ -14,6 +14,15 @@ const ease = (value: number, start: number, duration: number) => osmo(clamp01((v
 interface Panel { pass: Pass; label: string; x: number; y: number; w: number; h: number; open: number; element: HTMLElement }
 const INTRO = 3.7;
 const OPEN = .09;
+const CAPTIONS = [
+  'mastery · recursive self-improvement',
+  'an open-weights model, before it has seen your work',
+  'observe · capture real traces from your workflow, not benchmarks',
+  'evaluate · score every output against evals you write as code',
+  'refine · fine-tune on what passed, on hardware you own',
+  'ascend · ship the new weights only if they beat the old ones. then loop',
+  'your model. sent to mars.',
+];
 const CLOSE_START = .78;
 /** Panel rects in planet units: offsets from the planet centre and sizes as multiples of its on-screen radius, so the composition survives any viewport. */
 const layout: Omit<Panel, 'open' | 'element'>[] = [
@@ -69,6 +78,8 @@ function scramble(element: HTMLElement, text: string, duration = .5) {
   }, onComplete() { element.textContent = text; } });
 }
 const rail = select('.rail i');
+const tag = select('.tag');
+let lastCaption = '';
 const magnets = [...document.querySelectorAll<HTMLElement>('.magnet')];
 const endCopy = select('.end-copy');
 endCopy.innerHTML = (endCopy.textContent ?? '').split(' ').map((word, i) => `<span class="word"><span style="transition-delay:${i * 45}ms">${word}</span></span>`).join(' ');
@@ -134,6 +145,8 @@ function draw(now: number) {
   const beautyFade = ease(progress, .80, .12);
   const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, open - 1))).padStart(3, '0')}`;
   if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
+  const caption = CAPTIONS[progress > .9 ? 6 : beautyFade > .5 ? 5 : Math.min(5, open)];
+  if (caption !== lastCaption) { if (lastCaption && open > 0 && !motion.matches) ambient.tick(); lastCaption = caption; scramble(tag, caption, .7); }
   const showEnd = progress > .9;
   if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); end.inert = !showEnd; }
   document.body.dataset.scrolled = String(progress > .015);
@@ -155,6 +168,7 @@ function draw(now: number) {
     wireReveal: ease(t, 1.4, 1.4),
     wireOpacity: 1 - ease(t, 3.0, .6),
     beautyFade,
+    rimGhost: (1 - beautyFade) * ease(t, 2.6, 1.0) * (1 - ease(progress, .06, OPEN)) * .3,
     settle: ease(progress, .86, .12),
     pointer: { x: pointer.x, y: pointer.y },
     spin,

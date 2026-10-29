@@ -42,6 +42,20 @@ export class Ambient {
     await this.context.resume();
     this.gain!.gain.setTargetAtTime(.9, this.context.currentTime, 1.2);
   }
+  /** A soft click when a panel opens; silent unless the drone is on. */
+  tick() {
+    if (!this.on || !this.context || !this.gain) return;
+    const oscillator = this.context.createOscillator();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(1320, this.context.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(440, this.context.currentTime + .09);
+    const gain = this.context.createGain();
+    gain.gain.setValueAtTime(.05, this.context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.0001, this.context.currentTime + .14);
+    oscillator.connect(gain).connect(this.gain);
+    oscillator.start();
+    oscillator.stop(this.context.currentTime + .15);
+  }
   stop() {
     if (!this.context || !this.gain) return;
     this.gain.gain.setTargetAtTime(0, this.context.currentTime, .4);

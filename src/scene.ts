@@ -12,6 +12,8 @@ export interface FrameState {
   wireReveal: number;
   wireOpacity: number;
   beautyFade: number;
+  /** Faint blue limb shown inside the outline while the planet is still unrendered. */
+  rimGhost: number;
   /** 0..1: the finished planet settles up and slightly smaller to clear the waitlist. */
   settle: number;
   /** Pointer in -1..1 (x right, y up) and extra spin from scroll velocity. */
@@ -40,6 +42,7 @@ export class MarsScene {
   private readonly maskScene = new THREE.Scene();
   private readonly outlineScene = new THREE.Scene();
   private readonly voidScene = new THREE.Scene();
+  private readonly rimScene = new THREE.Scene();
   private readonly voidMaterial: THREE.ShaderMaterial;
   private readonly mask: THREE.WebGLRenderTarget;
   private readonly outline: THREE.ShaderMaterial;
@@ -100,6 +103,7 @@ export class MarsScene {
     this.dusk.frustumCulled = false;
     mesh(body, this.beauty, beautyScene);
     mesh(shell, this.atmosphere, beautyScene).renderOrder = 1;
+    mesh(shell, this.atmosphere, this.rimScene);
     this.passes = {
       wireframe: wireScene,
       observe: this.single(body, material(shader.uvFragment), mesh),
@@ -186,6 +190,7 @@ export class MarsScene {
       this.dusk.visible = false;
       r.render(this.passes.beauty, this.camera);
     }
+    if (state.rimGhost > .001 && state.beautyFade < .001) { this.setFade(state.rimGhost); r.render(this.rimScene, this.camera); }
     if (state.wireOpacity > .001 && state.wireReveal > 0) r.render(this.passes.wireframe, this.camera);
     const height = innerHeight;
     for (const panel of state.panels) {
