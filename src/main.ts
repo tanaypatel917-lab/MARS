@@ -190,7 +190,7 @@ function finishIntro() {
   document.body.dataset.intro = 'done';
   document.body.dataset.ui = 'on';
   lenis?.start();
-  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => jump(value)); }
+  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => requestAnimationFrame(() => { lenis?.resize(); jump(value); })); }
 }
 function skipIntro() {
   if (introFrozen || introTime >= INTRO) return;
@@ -288,6 +288,7 @@ addEventListener('resize', resize);
 addEventListener('scroll', onScroll, { passive: true });
 addEventListener('wheel', skipIntro, { passive: true });
 addEventListener('touchstart', skipIntro, { passive: true });
+addEventListener('pointerdown', skipIntro, { passive: true });
 addEventListener('keydown', skipIntro);
 document.addEventListener('click', click);
 addEventListener('pointermove', event => {
