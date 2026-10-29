@@ -252,6 +252,7 @@ function setAbout(open: boolean) {
   aboutToggle.setAttribute('aria-expanded', String(open));
   document.body.dataset.about = open ? 'on' : 'off';
   for (const region of [host, select('.hud'), select('.rail')]) region.inert = open;
+  end.inert = open || !endShown;
   if (open) {
     about.hidden = false;
     requestAnimationFrame(() => { about.classList.add('on'); select<HTMLButtonElement>('#about .close').focus({ preventScroll: true }); });
