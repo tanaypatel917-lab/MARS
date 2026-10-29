@@ -190,7 +190,7 @@ function finishIntro() {
   document.body.dataset.intro = 'done';
   document.body.dataset.ui = 'on';
   lenis?.start();
-  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => requestAnimationFrame(() => { lenis?.resize(); jump(value); })); }
+  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => requestAnimationFrame(() => { lenis?.resize(); jump(value); if (value === 1) email.focus({ preventScroll: true }); })); }
 }
 function skipIntro() {
   if (introFrozen || introTime >= INTRO) return;
