@@ -206,9 +206,10 @@ export class MarsScene {
     const height = innerHeight;
     for (const panel of state.panels) {
       if (panel.w < 2 || panel.h < 2) continue;
-      this.scissor.set(Math.round(panel.x * this.ratio), Math.round((height - panel.y - panel.h) * this.ratio), Math.round(panel.w * this.ratio), Math.round(panel.h * this.ratio));
+      // three multiplies setScissor() by the pixel ratio itself; shaders reading gl_FragCoord need device pixels.
       r.setScissorTest(true);
-      r.setScissor(this.scissor);
+      r.setScissor(panel.x, height - panel.y - panel.h, panel.w, panel.h);
+      this.scissor.set(Math.round(panel.x * this.ratio), Math.round((height - panel.y - panel.h) * this.ratio), Math.round(panel.w * this.ratio), Math.round(panel.h * this.ratio));
       r.setClearColor(PASS_BACKGROUND[panel.pass], 1);
       r.clear(true, true, false);
       if (panel.pass === 'beauty') {

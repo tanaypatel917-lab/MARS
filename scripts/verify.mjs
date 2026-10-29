@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 
 const browser = await chromium.connectOverCDP('http://localhost:29229');
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -28,6 +29,21 @@ try {
     assert(size[0] * size[1] <= 2_400_000);
   }
   console.log('PASS: rest/mid/beauty frames, panel counts, one canvas within the pixel budget');
+  const hidpi = await browser.newContext({ viewport: { width: 1024, height: 640 }, deviceScaleFactor: 2 });
+  const retina = await hidpi.newPage();
+  await ready(retina, 'mid');
+  await retina.waitForTimeout(800);
+  const box = await retina.locator('.panel[style*="z-index: 3"]').evaluate(e => { const b = e.getBoundingClientRect(); return { left: b.left, right: b.right, bottom: b.bottom }; });
+  await retina.screenshot({ path: '/tmp/mars-hidpi.png' });
+  const probe = JSON.parse(execFileSync('python3', ['-c', `
+from PIL import Image; import json, sys
+im = Image.open('/tmp/mars-hidpi.png').convert('RGB'); b = json.loads(sys.argv[1])
+print(json.dumps({'inside': im.getpixel((round((b['left'] + 6) * 2), round((b['bottom'] - 6) * 2))), 'outside': im.getpixel((round((b['right'] + 40) * 2), round((b['bottom'] + 40) * 2))), 'size': im.size}))`, JSON.stringify(box)]).toString());
+  assert(probe.size[0] === 2048, `expected a 2x capture, got ${probe.size}`);
+  assert(probe.inside[2] > 120 && probe.inside[0] > 60, `refine window interior should be violet at hidpi, got ${probe.inside}`);
+  assert(probe.outside[2] < 60, `outside the refine window should stay dark at hidpi, got ${probe.outside}`);
+  await hidpi.close();
+  console.log('PASS: GL window regions align with their DOM frames at devicePixelRatio 2');
   for (const frame of ['unknown', 'toString']) {
     await ready(page, frame);
     assert.equal(await counter(), 'iter 000');
