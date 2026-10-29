@@ -51,6 +51,7 @@ export class MarsScene {
   private readonly atmosphere: THREE.ShaderMaterial;
   private readonly transmission: THREE.ShaderMaterial;
   private readonly dusk: THREE.Mesh;
+  private readonly refineBackdrop: THREE.Mesh;
   private readonly disposables: { dispose(): void }[] = [];
   private readonly scissor = new THREE.Vector4();
   /** Key light in view space; it drifts slowly so the finished planet keeps living. */
@@ -80,7 +81,7 @@ export class MarsScene {
       return object;
     };
     this.wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: 1 } }, transparent: true, depthWrite: false });
-    this.transmission = material(shader.transmissionFragment, { uTime: { value: 0 } });
+    this.transmission = material(shader.transmissionFragment, { uTime: { value: 0 }, uRect: { value: new THREE.Vector4() } });
     const bake = new THREE.WebGLRenderTarget(mobile ? 1024 : 2048, mobile ? 512 : 1024, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     const bakeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.bakeFragment, depthTest: false, depthWrite: false });
     const bakeScene = new THREE.Scene();
@@ -106,11 +107,17 @@ export class MarsScene {
     mesh(body, this.beauty, beautyScene);
     mesh(shell, this.atmosphere, beautyScene).renderOrder = 1;
     mesh(shell, this.atmosphere, this.rimScene);
+    const refineScene = this.single(body, this.transmission, mesh);
+    const refineBg = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.refineFragment, uniforms: { uRect: { value: new THREE.Vector4() }, uTime: { value: 0 } }, depthTest: false, depthWrite: false });
+    this.disposables.push(refineBg);
+    this.refineBackdrop = mesh(quad, refineBg, refineScene, false);
+    this.refineBackdrop.renderOrder = -1;
+    this.refineBackdrop.frustumCulled = false;
     this.passes = {
       wireframe: wireScene,
       observe: this.single(body, material(shader.uvFragment), mesh),
       evaluate: this.single(body, material(shader.normalFragment), mesh),
-      refine: this.single(body, this.transmission, mesh),
+      refine: refineScene,
       beauty: beautyScene,
     };
     const maskMaterial = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader: shader.maskFragment });
@@ -210,6 +217,12 @@ export class MarsScene {
         (this.dusk.material as THREE.ShaderMaterial).uniforms.uRect.value.copy(this.scissor);
       }
       if (panel.pass === 'wireframe') { this.wire.uniforms.uReveal.value = 1; this.wire.uniforms.uOpacity.value = 1; }
+      if (panel.pass === 'refine') {
+        this.transmission.uniforms.uRect.value.copy(this.scissor);
+        const bg = (this.refineBackdrop.material as THREE.ShaderMaterial).uniforms;
+        bg.uRect.value.copy(this.scissor);
+        bg.uTime.value = state.time;
+      }
       r.render(this.passes[panel.pass], this.camera);
     }
     r.setScissorTest(false);

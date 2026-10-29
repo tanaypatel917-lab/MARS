@@ -35,15 +35,30 @@ varying vec3 vNormal;
 void main(){vec3 n=normalize(vNormal);vec3 c=n*.5+.5;c=mix(c,vec3(.55,.62,1.),.18);c=mix(c,vec3(.78,.55,1.),smoothstep(-.3,.9,n.x)*.25);c=pow(c,vec3(.85));gl_FragColor=vec4(c,1.);}
 `;
 
-/** "refine": a violet-to-cyan transmission plate with drifting internal density. */
+/** Backdrop of the "refine" window: violet glass with slow light bands; also sampled (refracted) by the body. */
+const refineBackdrop = /* glsl */`
+vec3 refineBg(vec2 p,float t){vec3 c=mix(vec3(.27,.06,.62),vec3(.48,.14,.86),smoothstep(0.,1.,p.y+p.x*.25));
+ c+=vec3(.16,.08,.22)*pow(.5+.5*sin((p.x*1.6+p.y*.9)*7.+t*.35),6.);c+=vec3(.05,.12,.25)*exp(-pow((p.y-.78+p.x*.2)/.08,2.));return c;}
+`;
+export const refineFragment = /* glsl */`
+uniform vec4 uRect;uniform float uTime;varying vec2 vUv;
+${refineBackdrop}
+void main(){vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;vec3 c=refineBg(p,uTime);
+ c+=(fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)-.5)*.02;gl_FragColor=vec4(c,1.);}
+`;
+
+/** "refine": the body as thick violet glass refracting its backdrop, with chromatic split and internal veins (Lusion's analytic-refraction trick). */
 export const transmissionFragment = /* glsl */`
-uniform float uTime;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
+uniform float uTime;uniform vec4 uRect;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
 ${noise}
-void main(){vec3 n=normalize(vNormal);float facing=max(0.,dot(n,normalize(-vView)));
+${refineBackdrop}
+void main(){vec3 n=normalize(vNormal);float facing=max(0.,dot(n,normalize(-vView)));vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;
+ float bend=.12*(1.-facing*.6);vec2 offset=-n.xy*bend;
+ vec3 c=vec3(refineBg(p+offset*.92,uTime).r,refineBg(p+offset,uTime).g,refineBg(p+offset*1.1,uTime).b);
  float density=fbm(vObject*2.4+vec3(0.,uTime*.05,uTime*.03));float veins=ridged(vObject*5.+density*1.5);
- vec3 magenta=vec3(.78,.14,.86),cyan=vec3(.42,.86,1.),deep=vec3(.26,.04,.42);
- vec3 c=mix(magenta,cyan,smoothstep(.35,.72,density+veins*.25));c=mix(c,deep,pow(1.-facing,1.6)*.75);
- c+=vec3(.5,.9,1.)*pow(veins,6.)*.35;gl_FragColor=vec4(c,1.);}
+ c=mix(c,vec3(.86,.16,.80),smoothstep(.42,.72,density)*.55);c=mix(c,vec3(.36,.82,1.),smoothstep(.55,.8,veins)*.45);c+=vec3(.42,.86,1.)*pow(veins,7.)*.5;
+ float edge=pow(1.-facing,2.2);c=mix(c,vec3(.6,.92,1.),edge*.7);c*=.85+.3*facing;
+ gl_FragColor=vec4(c,1.);}
 `;
 
 /** Terrain functions shared by the one-time bake. */
@@ -82,6 +97,7 @@ void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normaliz
  float fresnel=pow(1.-max(0.,dot(n,eye)),3.2);vec3 rimColor=mix(vec3(.22,.38,1.),vec3(.52,.30,.95),smoothstep(-.6,.6,n.y));
  float terminator=smoothstep(-.08,.35,dot(n,key));vec3 c=albedo*(diffuse*terminator*1.7*vec3(1.,.93,.84)+.012)+albedo*wrap*vec3(.07,.11,.30)+rimColor*fresnel*(.12+soft*.75);
  float spec=pow(max(0.,dot(reflect(-key,pn),eye)),28.)*.08*lowland;c+=spec;
+ c+=albedo*vec3(.05,.08,.18)*(1.-terminator)*.35;c+=vec3(.2,.3,.7)*exp(-pow(dot(n,key)/.12,2.))*.05*(1.-fresnel);
  float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;c=c/(1.+c*.25)+grain;
  gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))*uFade,1.);}
 `;
