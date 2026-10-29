@@ -67,14 +67,14 @@ void main(){float lon=(vUv.x-.5)*6.2831853;float lat=(vUv.y-.5)*3.1415926;vec3 s
 `;
 
 export const beautyFragment = /* glsl */`
-uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
+uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
 void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
  vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
  float e=.004;vec3 m0=texture2D(tTerrain,toUv(s)).rgb;float h0=m0.r;float hx=texture2D(tTerrain,toUv(normalize(s+t*e))).r;float hy=texture2D(tTerrain,toUv(normalize(s+b*e))).r;
  vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.);
- vec3 key=normalize(vec3(-.62,.5,.6));vec3 fill=normalize(vec3(.6,-.25,.75));
+ vec3 key=normalize(uKey);vec3 fill=normalize(vec3(.6,-.25,.75));
  float diffuse=max(0.,dot(pn,key));float soft=max(0.,dot(n,key));float wrap=pow(max(0.,dot(pn,fill)),1.4);
  float lowland=smoothstep(.25,.6,h0);float dust=m0.g;
  vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.36,.19,.12);
@@ -88,9 +88,9 @@ void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normaliz
 
 /** A slightly larger back-facing shell that gives the beauty pass its blue limb. */
 export const atmosphereFragment = /* glsl */`
-uniform float uFade;varying vec3 vNormal;varying vec3 vView;
+uniform float uFade;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
 void main(){vec3 n=normalize(vNormal);float inward=clamp(abs(dot(n,normalize(-vView)))/.24,0.,1.);float band=inward*inward*inward;
- vec3 c=mix(vec3(.2,.36,1.),vec3(.5,.3,.95),smoothstep(-.5,.7,n.y));float light=.12+.88*max(0.,dot(n,normalize(vec3(-.62,.5,.6))));
+ vec3 c=mix(vec3(.2,.36,1.),vec3(.5,.3,.95),smoothstep(-.5,.7,n.y));float light=.12+.88*max(0.,dot(n,normalize(uKey)));
  gl_FragColor=vec4(c*band*light*uFade*.9,1.);}
 `;
 

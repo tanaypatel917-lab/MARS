@@ -53,6 +53,8 @@ export class MarsScene {
   private readonly dusk: THREE.Mesh;
   private readonly disposables: { dispose(): void }[] = [];
   private readonly scissor = new THREE.Vector4();
+  /** Key light in view space; it drifts slowly so the finished planet keeps living. */
+  private readonly key = new THREE.Vector3(-.62, .5, .6);
   private ratio = 1;
   private disposed = false;
 
@@ -88,8 +90,8 @@ export class MarsScene {
     this.renderer.setRenderTarget(null);
     bakeMaterial.dispose();
     this.disposables.push(bake);
-    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) } });
-    this.atmosphere = material(shader.atmosphereFragment, { uFade: { value: 1 } }, { transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key } });
+    this.atmosphere = material(shader.atmosphereFragment, { uFade: { value: 1 }, uKey: { value: this.key } }, { transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
     this.disposables.push(this.wire);
     const wireScene = new THREE.Scene();
     const lines = new THREE.LineSegments(wire, this.wire);
@@ -156,6 +158,8 @@ export class MarsScene {
   render(state: FrameState) {
     if (this.disposed) return;
     const r = this.renderer;
+    const drift = state.time * .05;
+    this.key.set(-.62 + Math.sin(drift) * .25, .5 + Math.cos(drift * .7) * .12, .6).normalize();
     const spin = state.time * .04 + state.spin;
     const scale = 1 - state.settle * .14;
     for (const body of this.bodies) {
