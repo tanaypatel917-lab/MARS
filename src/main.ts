@@ -144,10 +144,11 @@ function draw(now: number) {
   const t = introTime;
   const views = panelViews();
   const open = panels.filter(p => p.open > .5).length;
+  const stage = panels.filter((_, i) => progress >= .06 + i * .12 + OPEN * .5).length;
   const beautyFade = ease(progress, .80, .12);
-  const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, open - 1))).padStart(3, '0')}`;
+  const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, stage - 1))).padStart(3, '0')}`;
   if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
-  const caption = CAPTIONS[progress > .9 ? 6 : beautyFade > .5 ? 5 : Math.min(5, open)];
+  const caption = CAPTIONS[progress > .9 ? 6 : beautyFade > .5 ? 5 : Math.min(5, stage)];
   if (caption !== lastCaption) { if (lastCaption && open > 0 && !motion.matches) ambient.tick(); lastCaption = caption; scramble(tag, caption, .7); }
   const showEnd = progress > .9;
   if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); end.inert = !showEnd; }
@@ -233,6 +234,7 @@ function click(event: MouseEvent) {
   if (!target) return;
   event.preventDefault();
   skipIntro();
+  if (!about.hidden) setAbout(false);
   jump(target.hash === '#waitlist' ? 1 : 0);
   if (target.hash === '#waitlist') email.focus({ preventScroll: true });
 }
@@ -247,6 +249,7 @@ function submit(event: SubmitEvent) {
 function setAbout(open: boolean) {
   aboutToggle.setAttribute('aria-expanded', String(open));
   document.body.dataset.about = open ? 'on' : 'off';
+  for (const region of [host, select('.hud'), select('.rail')]) region.inert = open;
   if (open) {
     about.hidden = false;
     requestAnimationFrame(() => { about.classList.add('on'); select<HTMLButtonElement>('#about .close').focus({ preventScroll: true }); });

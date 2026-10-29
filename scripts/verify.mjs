@@ -41,7 +41,7 @@ try {
   await page.waitForFunction(() => document.body.dataset.intro === 'done', null, { timeout: 8000 });
   assert.equal(await page.locator('body').getAttribute('data-ui'), 'on');
   console.log('PASS: intro runs, locks scroll, then hands over to the page');
-  await page.locator('.link').click();
+  await page.locator('a.link').click();
   await page.waitForFunction(() => document.querySelector('#waitlist').classList.contains('on'));
   await page.locator('button[type=submit]').click();
   assert.equal(await page.locator('#email').evaluate(e => e.validity.valueMissing), true);
@@ -57,6 +57,19 @@ try {
   await page.locator('#sound').click();
   assert.equal(await page.locator('#sound').getAttribute('aria-pressed'), 'false');
   console.log('PASS: sound toggle');
+  await page.locator('#about-toggle').click();
+  await page.waitForFunction(() => document.querySelector('#about').classList.contains('on'));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.querySelector('#about').hidden);
+  console.log('PASS: about window opens and closes with Escape');
+  await ready(page);
+  await page.waitForFunction(() => document.body.dataset.intro === 'done', null, { timeout: 8000 });
+  const captions = [];
+  for (const p of [.15, .3, .4, .5, .7, .8, .84, .88, .95]) { await page.evaluate(v => window.scrollTo(0, v * (document.documentElement.scrollHeight - innerHeight)), p); await page.waitForTimeout(900); captions.push(await page.locator('.tag').textContent()); }
+  const stages = captions.map(c => c.split(' · ')[0]);
+  assert.deepEqual(stages.slice(0, 4), ['an open-weights model, before it has seen your work', 'observe', 'evaluate', 'refine']);
+  assert.ok(stages.slice(4).every((s, i) => i === stages.length - 5 ? s === 'your model. sent to mars.' : s === 'ascend'), String(stages));
+  console.log('PASS: captions advance monotonically through close and finale');
   const reduced = await context.newPage();
   await reduced.emulateMedia({ reducedMotion: 'reduce' });
   await ready(reduced);
