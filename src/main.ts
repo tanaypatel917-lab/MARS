@@ -46,6 +46,8 @@ const end = select('#waitlist');
 const form = select<HTMLFormElement>('#access-form');
 const email = select<HTMLInputElement>('#email');
 const soundButton = select<HTMLButtonElement>('#sound');
+const about = select('#about');
+const aboutToggle = select<HTMLButtonElement>('#about-toggle');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 const query = new URLSearchParams(location.search);
 const frame = query.get('frame');
@@ -242,6 +244,20 @@ function submit(event: SubmitEvent) {
   select<HTMLButtonElement>('#access-form button').textContent = 'on approach ✓';
   email.value = '';
 }
+function setAbout(open: boolean) {
+  aboutToggle.setAttribute('aria-expanded', String(open));
+  document.body.dataset.about = open ? 'on' : 'off';
+  if (open) {
+    about.hidden = false;
+    requestAnimationFrame(() => { about.classList.add('on'); select<HTMLButtonElement>('#about .close').focus({ preventScroll: true }); });
+    lenis?.stop();
+  } else {
+    about.classList.remove('on');
+    setTimeout(() => { if (!about.classList.contains('on')) about.hidden = true; }, 900);
+    if (document.body.dataset.intro === 'done') lenis?.start();
+    aboutToggle.focus({ preventScroll: true });
+  }
+}
 async function toggleSound() {
   const on = soundButton.getAttribute('aria-pressed') === 'true';
   if (on) ambient.stop(); else await ambient.start();
@@ -286,6 +302,9 @@ addEventListener('pointermove', event => {
 document.addEventListener('pointerleave', () => { document.body.dataset.cursor = 'away'; });
 form.addEventListener('submit', submit);
 soundButton.addEventListener('click', () => { void toggleSound(); });
+aboutToggle.addEventListener('click', () => { skipIntro(); setAbout(aboutToggle.getAttribute('aria-expanded') !== 'true'); });
+select('#about .close').addEventListener('click', () => setAbout(false));
+addEventListener('keydown', event => { if (event.key === 'Escape' && !about.hidden) setAbout(false); });
 canvas.addEventListener('webglcontextlost', contextLost);
 addEventListener('pagehide', event => { if (!event.persisted) { gsap.ticker.remove(tick); lenis?.destroy(); scene?.dispose(); ambient.dispose(); } });
 updateMotion();

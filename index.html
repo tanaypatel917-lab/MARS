@@ -17,8 +17,17 @@
     <p id="boot" aria-hidden="true">tracing · 000</p>
     <header class="ui corners">
       <a class="brand magnet" href="#top">MARS</a>
-      <a class="link magnet" href="#waitlist">Waitlist</a>
+      <nav class="links"><button class="link magnet" id="about-toggle" type="button" aria-expanded="false" aria-controls="about">About</button><a class="link magnet" href="#waitlist">Waitlist</a></nav>
     </header>
+    <section id="about" class="window" hidden aria-label="About MARS">
+      <div class="bar"><i></i><i></i><i></i><span>about · mars</span><button type="button" class="close" aria-label="Close">esc</button></div>
+      <div class="body">
+        <p>MARS takes an open-weights model and sends it on one mission: your workflow. Not a benchmark, not a demo set. The actual tasks your team runs.</p>
+        <p>The loop is short. <b>Observe</b> real traces. <b>Evaluate</b> every output against evals you write as code. <b>Refine</b> by fine-tuning on what passed. <b>Ascend</b> only when the new weights beat the old ones. Then go again.</p>
+        <p>Day 100 beats day 1. The weights stay yours, small enough to run on hardware you own.</p>
+        <p class="meta">M·A·S for mastery, R for the recursive self-improvement loop. Built in the open for developers; early access by waitlist.</p>
+      </div>
+    </section>
     <div class="panels" aria-hidden="true"></div>
     <div class="ui hud">
       <span id="counter" aria-live="polite">iter 000</span>

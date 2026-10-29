@@ -10,7 +10,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:1px solid var(-
 .grain{z-index:3;opacity:.04;mix-blend-mode:screen;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .95 0 0 0 0 .85 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 .ui{opacity:0;transition:opacity .6s ease}body[data-ui=on] .ui{opacity:1}
 .corners{position:fixed;z-index:6;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:22px var(--edge);font-size:14px;letter-spacing:-.01em}
-.brand{font:500 15px/1 Switzer,sans-serif;letter-spacing:.02em}.link{color:var(--muted);transition:color .3s}.link:hover{color:var(--ink)}
+.brand{font:500 15px/1 Switzer,sans-serif;letter-spacing:.02em}.links{display:flex;gap:26px}.link{color:var(--muted);transition:color .3s}.link:hover{color:var(--ink)}
 .panels{z-index:2;overflow:hidden}.panel{position:absolute;overflow:hidden;border:1px solid var(--line);border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
 .panel .bar{height:var(--bar);display:flex;align-items:center;gap:5px;padding:0 9px;background:#141214;border-bottom:1px solid rgba(0,0,0,.6);font:400 10px/1 'Commit Mono',monospace;color:#8e8880;letter-spacing:.02em;white-space:nowrap}
 .panel .bar i{width:6px;height:6px;border-radius:50%;background:#403c3e}.panel .bar span{margin-left:8px}
@@ -27,6 +27,11 @@ body[data-cursor=idle] #cursor,body[data-cursor=hot] #cursor{opacity:1}body[data
 body[data-cursor=idle] a,body[data-cursor=idle] button,body[data-cursor=hot] a,body[data-cursor=hot] button,body[data-cursor=idle],body[data-cursor=hot]{cursor:none}
 .magnet{transition:transform .5s cubic-bezier(.625,.05,0,1);will-change:transform}
 .rail{position:fixed;z-index:6;right:var(--edge);top:50%;height:120px;width:1px;transform:translateY(-50%);background:rgba(236,230,220,.12)}.rail i{position:absolute;inset:0;background:var(--ink);transform-origin:top;transform:scaleY(0)}.rail b{position:absolute;left:-2px;width:5px;height:1px;background:rgba(236,230,220,.4)}.rail b:nth-child(2){top:8%}.rail b:nth-child(3){top:30%}.rail b:nth-child(4){top:52%}.rail b:nth-child(5){top:74%}.rail b:nth-child(6){top:96%}
+.window{position:fixed;z-index:12;left:50%;top:50%;width:min(520px,calc(100vw - 2*var(--edge)));transform:translate(-50%,-50%);border:1px solid var(--line);border-radius:3px;background:#0a090c;box-shadow:0 0 0 1px rgba(0,0,0,.6),0 30px 80px rgba(0,0,0,.6);clip-path:inset(0 0 100% 0);transition:clip-path .9s cubic-bezier(.625,.05,0,1)}
+.window.on{clip-path:inset(0)}.window .bar{height:var(--bar);display:flex;align-items:center;gap:5px;padding:0 9px;background:#141214;border-bottom:1px solid rgba(0,0,0,.6);font:400 10px/1 'Commit Mono',monospace;color:#8e8880;letter-spacing:.02em}
+.window .bar i{width:6px;height:6px;border-radius:50%;background:#403c3e}.window .bar span{margin-left:8px}.window .close{margin-left:auto;font:inherit;color:#8e8880;padding:4px 0}.window .close:hover{color:var(--ink)}
+.window .body{padding:26px 28px 24px;font-size:14px;line-height:1.6;color:#cfc9bf}.window .body p{margin:0 0 14px}.window .body b{font-weight:400;color:var(--ink)}.window .meta{font:400 10px/1.6 'Commit Mono',monospace;letter-spacing:.04em;color:var(--muted);margin:22px 0 0!important}
+body[data-about=on] .panels,body[data-about=on] .hud,body[data-about=on] .rail{opacity:.25}
 #boot{position:fixed;z-index:6;left:0;right:0;bottom:22px;margin:0;text-align:center;font:400 10px/1 'Commit Mono',monospace;letter-spacing:.06em;color:var(--muted);transition:opacity .5s}body[data-intro=done] #boot{opacity:0}
 #access-form{display:flex;flex-direction:column;align-items:center;gap:12px}
 #access-form input{width:280px;background:none;border:0;border-bottom:1px solid var(--line);border-radius:0;color:var(--ink);padding:8px 0;font-size:13px;text-align:center;outline-offset:3px}#access-form input::placeholder{color:#5c5751}
