@@ -116,8 +116,8 @@ function panelViews(): PanelView[] {
     const closing = ease(progress, CLOSE_START + (panels.length - 1 - i) * .012, .07);
     const open = opening * (1 - closing);
     const tear = opening > .02 && opening < .5 ? Math.round((Math.random() - .5) * 10 * (1 - opening * 2)) : 0;
-    const left = Math.round(cx + panel.x * radius) + tear, top = Math.round(cy + panel.y * radius);
     const fullWidth = Math.round(panel.w * radius);
+    const left = Math.min(Math.round(cx + panel.x * radius), innerWidth - Math.min(fullWidth, 170)) + tear, top = Math.round(cy + panel.y * radius);
     const wide = smooth(open / .62), tall = smooth((open - .38) / .62);
     const w = Math.round(fullWidth * wide), h = Math.round(panel.h * radius * tall);
     if (open !== panel.open || tear) {
@@ -190,11 +190,11 @@ function finishIntro() {
   document.body.dataset.intro = 'done';
   document.body.dataset.ui = 'on';
   lenis?.start();
-  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => jump(value)); }
+  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => requestAnimationFrame(() => { lenis?.resize(); jump(value); if (value === 1) email.focus({ preventScroll: true }); })); }
 }
 function skipIntro() {
   if (introFrozen || introTime >= INTRO) return;
-  gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; } });
+  gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; }, onComplete() { introTime = INTRO; finishIntro(); } });
 }
 function tick(time: number) {
   lenis?.raf(time * 1000);
@@ -252,6 +252,7 @@ function setAbout(open: boolean) {
   aboutToggle.setAttribute('aria-expanded', String(open));
   document.body.dataset.about = open ? 'on' : 'off';
   for (const region of [host, select('.hud'), select('.rail')]) region.inert = open;
+  end.inert = open || !endShown;
   if (open) {
     about.hidden = false;
     requestAnimationFrame(() => { about.classList.add('on'); select<HTMLButtonElement>('#about .close').focus({ preventScroll: true }); });
@@ -288,6 +289,7 @@ addEventListener('resize', resize);
 addEventListener('scroll', onScroll, { passive: true });
 addEventListener('wheel', skipIntro, { passive: true });
 addEventListener('touchstart', skipIntro, { passive: true });
+addEventListener('pointerdown', skipIntro, { passive: true });
 addEventListener('keydown', skipIntro);
 document.addEventListener('click', click);
 addEventListener('pointermove', event => {
