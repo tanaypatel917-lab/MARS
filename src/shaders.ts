@@ -93,9 +93,11 @@ export const skyFragment = /* glsl */`
 uniform float uArrival;uniform float uTime;uniform float uAspect;varying vec2 vUv;
 ${noise}
 void main(){vec3 color=vec3(.0196,.0157,.0392);vec2 sun=vec2(.73,.435);vec2 d=vUv-sun;d.x*=uAspect;float dist=length(d);
- vec3 dusk=vec3(.014,.008,.018);dusk+=vec3(.085,.039,.030)*exp(-abs(vUv.y-.31)*8.);
- dusk+=vec3(.07,.12,.28)*exp(-dist*dist/.065);dusk+=vec3(.19,.32,.58)*exp(-dist*dist/.004);
- dusk+=vec3(.70,.78,.98)*exp(-dist*dist/.000009);
+ vec3 dusk=vec3(.012,.008,.020);dusk+=vec3(.030,.018,.025)*exp(-abs(vUv.y-.31)*8.);
+ dusk+=vec3(.045,.075,.18)*exp(-dist*dist/.045);dusk+=vec3(.15,.23,.40)*exp(-dist*dist/.0018);
+ dusk+=vec3(.33,.42,.62)*exp(-dist*dist/.000007);
+ float scatter=exp(-pow((vUv.y-.385)/.018,2.))*exp(-d.x*d.x/.5);
+ dusk+=vec3(.018,.032,.065)*scatter;
  color=mix(color,dusk,uArrival);gl_FragColor=vec4(color,1.);}
 `;
 
@@ -108,10 +110,15 @@ void main(){vec3 p=position;p.y=height(p.xz)-3.;vPosition=p;vHeight=p.y;gl_Posit
 export const terrainFragment = /* glsl */`
 varying vec3 vPosition;varying float vHeight;uniform float uOpacity;
 ${noise}
-void main(){vec3 n=normalize(cross(dFdx(vPosition),dFdy(vPosition)));float sun=max(0.,dot(n,normalize(vec3(.7,.3,-.7))));float detail=fbm(vPosition*1.8);
- vec3 rust=mix(vec3(.075,.027,.021),vec3(.29,.105,.045),detail);rust*=.50+sun*.75;
- float distance=-vPosition.z;float fog=1.-exp(-max(0.,distance)*.023);
- vec3 col=mix(rust,vec3(.095,.071,.095),fog*.80);col+=vec3(.04,.04,.085)*pow(sun,2.);
+void main(){vec3 n=normalize(cross(dFdx(vPosition),dFdy(vPosition)));if(n.y<0.)n=-n;
+ float sun=max(0.,dot(n,normalize(vec3(.65,.18,-1.))));float distance=max(0.,-vPosition.z);
+ float midground=smoothstep(12.,40.,distance)*(1.-smoothstep(75.,125.,distance));
+ float crest=smoothstep(.15,1.65,vHeight);float light=pow(sun,2.5)*crest;
+ vec3 col=vec3(.003,.002,.007);
+ col+=vec3(.12,.039,.018)*midground*light;
+ col+=vec3(.055,.065,.16)*smoothstep(8.,32.,distance)*light;
+ float fog=1.-exp(-max(0.,distance-22.)*.012);
+ col=mix(col,vec3(.052,.061,.085),fog*.80);
  gl_FragColor=vec4(col,uOpacity);}
 `;
 
