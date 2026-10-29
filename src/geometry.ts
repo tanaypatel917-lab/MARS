@@ -74,7 +74,9 @@ export function wireGeometry(points: number) {
   const p = wire.attributes.position;
   for (let i = 0; i < count; i++) {
     if (i % 2 === 0) {
-      const value = hash(Math.round(p.getX(i) * 97 + p.getX(i + 1) * 31), Math.round(p.getY(i) * 57 + p.getY(i + 1) * 13), Math.round(p.getZ(i) * 71));
+      const jitter = hash(Math.round(p.getX(i) * 97 + p.getX(i + 1) * 31), Math.round(p.getY(i) * 57 + p.getY(i + 1) * 13), Math.round(p.getZ(i) * 71));
+      const top = 1 - ((p.getY(i) + p.getY(i + 1)) * .5 + 1.1) / 2.2;
+      const value = Math.min(1, top * .7 + jitter * .3);
       seed[i] = value; seed[i + 1] = value;
     }
     v.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
