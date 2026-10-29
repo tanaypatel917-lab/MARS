@@ -8,6 +8,7 @@ import { Ambient } from './audio';
 gsap.registerPlugin(CustomEase);
 const osmo = CustomEase.create('osmo', '0.625, 0.05, 0, 1');
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+const smooth = (value: number) => { const t = clamp01(value); return t * t * (3 - 2 * t); };
 const THREE_CLAMP = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const ease = (value: number, start: number, duration: number) => osmo(clamp01((value - start) / duration));
 
@@ -117,7 +118,8 @@ function panelViews(): PanelView[] {
     const tear = opening > .02 && opening < .5 ? Math.round((Math.random() - .5) * 10 * (1 - opening * 2)) : 0;
     const left = Math.round(cx + panel.x * radius) + tear, top = Math.round(cy + panel.y * radius);
     const fullWidth = Math.round(panel.w * radius);
-    const w = Math.round(fullWidth * open), h = Math.round(panel.h * radius * open);
+    const wide = smooth(open / .62), tall = smooth((open - .38) / .62);
+    const w = Math.round(fullWidth * wide), h = Math.round(panel.h * radius * tall);
     if (open !== panel.open || tear) {
       panel.open = open;
       const style = panel.element.style;

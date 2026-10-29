@@ -32,4 +32,5 @@ reduced motion skips the intro. The sound toggle plays a generated drone (off by
 
 The email form is a demo: native validation and an explicit non-persistent success
 message. It stores/sends nothing. The endpoint TODO is in `src/main.ts`.
-No deployment is configured yet.
+Vercel builds every branch from GitHub (project `mars`); previews sit behind Vercel Deployment Protection until it is switched off.
+`About` opens a window in the same panel style; `Waitlist` jumps to the end.
