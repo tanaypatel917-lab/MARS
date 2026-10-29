@@ -1,122 +1,104 @@
 export const noise = /* glsl */`
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
-float valueNoise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
-float fbm(vec3 p){float v=0.;float a=.5;for(int i=0;i<5;i++){v+=a*valueNoise(p);p=p*2.03+vec3(8.1,4.3,1.7);a*=.5;}return v;}
+float vnoise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*vnoise(p);p=p*2.07+vec3(8.1,4.3,1.7);a*=.5;}return v;}
+float ridged(vec3 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*(1.-abs(vnoise(p)*2.-1.));p=p*2.1+vec3(3.3,1.1,7.7);a*=.5;}return v;}
 `;
 
-export const planetVertex = /* glsl */`
-varying vec3 vNormal;varying vec3 vPosition;varying vec3 vWorld;
-void main(){vNormal=normalize(normalMatrix*normal);vPosition=position;vWorld=(modelViewMatrix*vec4(position,1)).xyz;gl_Position=projectionMatrix*vec4(vWorld,1);}
+export const bodyVertex = /* glsl */`
+varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;varying vec2 vUv;
+void main(){vNormal=normalize(normalMatrix*normal);vObject=position;vUv=uv;vec4 mv=modelViewMatrix*vec4(position,1.);vView=mv.xyz;gl_Position=projectionMatrix*mv;}
 `;
-export const planetFragment = /* glsl */`
-uniform float uTime;uniform float uMars;varying vec3 vNormal;varying vec3 vPosition;varying vec3 vWorld;
+
+/** Thin sparse wireframe; back lines fade so the body still reads as a volume. */
+export const wireVertex = /* glsl */`
+attribute float aSeed;uniform float uReveal;varying float vFacing;varying float vShow;
+void main(){vec3 n=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vFacing=dot(n,normalize(-mv.xyz));vShow=step(aSeed,uReveal);gl_Position=projectionMatrix*mv;}
+`;
+export const wireFragment = /* glsl */`
+uniform float uOpacity;varying float vFacing;varying float vShow;
+void main(){if(vShow<.5)discard;float a=mix(.16,1.,smoothstep(-.25,.45,vFacing));gl_FragColor=vec4(vec3(.93,.88,.80),a*uOpacity);}
+`;
+
+/** "observe": a lit checker, the uv-debug look. */
+export const uvFragment = /* glsl */`
+varying vec3 vNormal;varying vec3 vView;varying vec2 vUv;
+void main(){vec2 g=floor(vec2(vUv.x*28.,vUv.y*14.));float checker=mod(g.x+g.y,2.);vec3 n=normalize(vNormal);
+ float light=.35+.65*max(0.,dot(n,normalize(vec3(-.55,.6,.75))));float rim=pow(1.-max(0.,dot(n,normalize(-vView))),3.);
+ vec3 c=mix(vec3(.13,.13,.14),vec3(.90,.86,.78),checker)*light;c=mix(c,vec3(.05),rim*.6);
+ gl_FragColor=vec4(pow(c,vec3(1./2.2)),1.);}
+`;
+
+/** "evaluate": pastel normals, cooled toward blue and violet. */
+export const normalFragment = /* glsl */`
+varying vec3 vNormal;
+void main(){vec3 n=normalize(vNormal);vec3 c=n*.5+.5;c=mix(c,vec3(.55,.62,1.),.18);c=mix(c,vec3(.78,.55,1.),smoothstep(-.3,.9,n.x)*.25);c=pow(c,vec3(.85));gl_FragColor=vec4(c,1.);}
+`;
+
+/** "refine": a violet-to-cyan transmission plate with drifting internal density. */
+export const transmissionFragment = /* glsl */`
+uniform float uTime;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
 ${noise}
-void main(){
- vec3 n=normalize(vNormal);vec3 eye=normalize(-vWorld);float facing=max(0.,dot(n,eye));float rim=pow(1.-facing,3.8);
- float light=max(0.,dot(n,normalize(vec3(-.7,.65,1.))));
- float terrain=fbm(normalize(vPosition)*7.);float detail=fbm(normalize(vPosition)*64.);
- vec3 rock=mix(vec3(.095,.025,.012),vec3(.34,.12,.047),smoothstep(.25,.8,terrain));
- vec3 craterPos=normalize(vPosition)*16.;vec3 cell=floor(craterPos);
- vec3 craterCenter=.25+vec3(hash(cell),hash(cell+1.23),hash(cell+2.91))*.5;
- float craterDistance=length(fract(craterPos)-craterCenter);float craterRadius=.09+hash(cell+4.5)*.15;
- float bowl=1.-smoothstep(craterRadius*.65,craterRadius,craterDistance);
- float lip=exp(-pow((craterDistance-craterRadius)/.025,2.));rock*=1.-bowl*.55+lip*.25;
- vec3 abstract=vec3(.004,.004,.013)+vec3(.012,.015,.035)*light*terrain;
- vec3 base=mix(abstract,rock*(.08+light*.8)*(.7+detail*.5),uMars);
- vec3 edge=mix(vec3(.15,.22,.9),vec3(.36,.14,.78),smoothstep(-.7,.5,n.y));
- base+=edge*rim*(.06+light*.50);float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*8.)))-.5)*.016;
- gl_FragColor=vec4(max(base+grain,0.),1.);
-}
+void main(){vec3 n=normalize(vNormal);float facing=max(0.,dot(n,normalize(-vView)));
+ float density=fbm(vObject*2.4+vec3(0.,uTime*.05,uTime*.03));float veins=ridged(vObject*5.+density*1.5);
+ vec3 magenta=vec3(.78,.14,.86),cyan=vec3(.42,.86,1.),deep=vec3(.26,.04,.42);
+ vec3 c=mix(magenta,cyan,smoothstep(.35,.72,density+veins*.25));c=mix(c,deep,pow(1.-facing,1.6)*.75);
+ c+=vec3(.5,.9,1.)*pow(veins,6.)*.35;gl_FragColor=vec4(c,1.);}
 `;
 
-export const fullscreenVertex = /* glsl */`
-varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0,1);}
+export const beautyFragment = /* glsl */`
+uniform float uTime;uniform float uFade;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
+${noise}
+float craters(vec3 p,float scale,float depth){vec3 q=p*scale;vec3 cell=floor(q);float h=0.;
+ for(int x=-1;x<=1;x++)for(int y=-1;y<=1;y++)for(int z=-1;z<=1;z++){vec3 c=cell+vec3(x,y,z);vec3 center=c+.5+(vec3(hash(c),hash(c+7.1),hash(c+3.7))-.5)*.7;
+  float r=.18+hash(c+11.3)*.3;float d=length(q-center);if(hash(c+5.)>.55)continue;
+  float bowl=smoothstep(r,r*.3,d)*depth;float rim=exp(-pow((d-r)/(r*.22),2.))*depth*.45;h+=rim-bowl;}
+ return h;}
+float height(vec3 p){vec3 s=normalize(p);float h=fbm(s*2.6+1.7)*.65+ridged(s*7.5)*.22+fbm(s*22.)*.06;
+ h+=craters(s,3.2,.09)+craters(s,8.,.05)+craters(s,20.,.022);return h;}
+void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
+ vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
+ float e=.004;float h0=height(s);float hx=height(normalize(s+t*e));float hy=height(normalize(s+b*e));
+ vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.);
+ vec3 key=normalize(vec3(-.62,.5,.6));vec3 fill=normalize(vec3(.6,-.25,.75));
+ float diffuse=max(0.,dot(pn,key));float soft=max(0.,dot(n,key));float wrap=pow(max(0.,dot(pn,fill)),1.4);
+ float lowland=smoothstep(.25,.6,h0);float dust=smoothstep(.55,.95,fbm(s*4.+3.3));
+ vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.36,.19,.12);
+ vec3 albedo=mix(basalt,rust,lowland);albedo=mix(albedo,pale,dust*lowland*.45);albedo*=.8+.4*fbm(s*40.);
+ float fresnel=pow(1.-max(0.,dot(n,eye)),3.2);vec3 rimColor=mix(vec3(.22,.38,1.),vec3(.52,.30,.95),smoothstep(-.6,.6,n.y));
+ float terminator=smoothstep(-.08,.35,dot(n,key));vec3 c=albedo*(diffuse*terminator*1.7*vec3(1.,.93,.84)+.012)+albedo*wrap*vec3(.07,.11,.30)+rimColor*fresnel*(.12+soft*.75);
+ float spec=pow(max(0.,dot(reflect(-key,pn),eye)),28.)*.08*lowland;c+=spec;
+ float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;c=c/(1.+c*.25)+grain;
+ gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))*uFade,1.);}
 `;
+
+/** A slightly larger back-facing shell that gives the beauty pass its blue limb. */
 export const atmosphereFragment = /* glsl */`
-uniform vec2 uCenter;uniform float uRadius;uniform float uAspect;uniform float uOpacity;uniform float uTime;varying vec2 vUv;
-float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-void main(){
- vec2 d=vUv-uCenter;d.x*=uAspect;float radius=length(d);float edge=radius-uRadius;
- if(edge<-.001||uOpacity<.001)discard;
- float breath=1.+.05*sin(uTime*.4);float tight=exp(-max(edge,0.)/.0028);
- float blue=exp(-max(edge,0.)/.022)*.37;float violet=exp(-max(edge,0.)/.065)*.15;
- float side=.22+.78*smoothstep(-.75,.75,d.y/uRadius-d.x/uRadius*.3);
- float density=(tight*.8+blue+violet)*side*breath;
- float random=h(floor(gl_FragCoord.xy/1.2)+floor(uTime*7.)*.17);
- if(density<.002||random>density)discard;
- vec3 color=mix(vec3(.17,.30,.98),vec3(.48,.22,.82),smoothstep(.008,.08,edge));
- float intensity=mix(.28,.8,tight)*side;
- gl_FragColor=vec4(color*intensity,uOpacity*.65);
-}
+uniform float uFade;varying vec3 vNormal;varying vec3 vView;
+void main(){vec3 n=normalize(vNormal);float inward=clamp(abs(dot(n,normalize(-vView)))/.24,0.,1.);float band=inward*inward*inward;
+ vec3 c=mix(vec3(.2,.36,1.),vec3(.5,.3,.95),smoothstep(-.5,.7,n.y));float light=.12+.88*max(0.,dot(n,normalize(vec3(-.62,.5,.6))));
+ gl_FragColor=vec4(c*band*light*uFade*.9,1.);}
 `;
 
-export const particleVertex = /* glsl */`
-attribute vec3 aSeed;uniform float uTime;uniform float uProgress;uniform float uPhase;uniform float uOpacity;
-varying float vAlpha;varying float vHue;varying vec2 vUv;
-const float TAU=6.2831853;
-void main(){
- float t=aSeed.x*TAU+uTime*.055;float r=2.18+(aSeed.y-.5)*.045;
- float phase=uPhase;float spread=mix(.21,.012,smoothstep(0.,3.,phase));
- if(phase>.5&&phase<1.5)r=2.18+(floor(aSeed.y*3.)-1.)*.065;
- float theta=t;
- if(phase>1.5)theta=floor(aSeed.x*84.)/84.*TAU+uTime*.07;
- if(phase>2.5)theta=aSeed.x*TAU+uTime*.12;
- vec3 ring=vec3(cos(theta)*r,sin(theta)*r*.68,sin(theta)*r*.74);
- ring+=vec3(1.78,0.,0.);
- ring+=vec3(sin(aSeed.z*130.),cos(aSeed.z*91.),sin(aSeed.z*71.))*spread*(.3+aSeed.y);
- vec2 centered=ring.xy-vec2(1.78,0.);float turn=-.25+uTime*.008;
- ring.xy=mat2(cos(turn),sin(turn),-sin(turn),cos(turn))*centered+vec2(1.78,0.);
- vec3 diffuse=vec3((aSeed.x-.5)*14.,(aSeed.y-.5)*9.,(aSeed.z-.5)*7.);
- float travel=fract(aSeed.x+uTime*.04);vec3 trail=vec3(-2.+travel*8.,-.9+pow(travel,1.5)*2.8,sin(travel*3.)*.5);
- trail+=vec3(0.,sin(aSeed.z*90.),cos(aSeed.y*80.))*.055;
- float focus=smoothstep(.19,.37,uProgress);vec3 pos=mix(diffuse,trail,focus);
- pos=mix(pos,ring,smoothstep(.36,.43,uProgress));
- float size=.008+aSeed.z*.015;
- vec4 mv=modelViewMatrix*vec4(pos,1);mv.xy+=position.xy*size;
- gl_Position=projectionMatrix*mv;vUv=uv;vAlpha=uOpacity*(.2+.8*aSeed.y);vHue=aSeed.z;
-}
-`;
-export const particleFragment = /* glsl */`
-varying vec2 vUv;varying float vAlpha;varying float vHue;
-void main(){float d=length(vUv-.5)*2.;if(d>1.)discard;float a=exp(-d*d*6.)*vAlpha;vec3 c=mix(vec3(.32,.40,1.),vec3(.72,.56,1.),vHue);gl_FragColor=vec4(c,a);}
+export const fullscreenVertex = /* glsl */`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`;
+
+/** Panel background for the beauty pass: blue hour over the horizon. */
+export const duskFragment = /* glsl */`
+varying vec2 vUv;uniform vec4 uRect;
+void main(){vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;vec3 top=vec3(.016,.012,.034),mid=vec3(.07,.09,.26),low=vec3(.32,.22,.20);
+ vec3 c=mix(mid,top,smoothstep(.35,1.,p.y));c=mix(low,c,smoothstep(0.,.42,p.y));c+=vec3(.25,.35,.7)*exp(-pow((p.y-.18)/.09,2.))*.35;
+ gl_FragColor=vec4(c,1.);}
 `;
 
-export const ringVertex = /* glsl */`
-varying vec3 vPosition;varying vec3 vNormal;void main(){vPosition=position;vNormal=normal;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}
-`;
-export const ringFragment = /* glsl */`
-varying vec3 vPosition;varying vec3 vNormal;uniform float uTime;uniform float uOpacity;uniform float uPhase;
-void main(){float t=atan(vPosition.y,vPosition.x);float shimmer=.7+.3*sin(t*3.-uTime*.4);float highlight=pow(max(0.,sin(t-.6)),12.);vec3 c=mix(vec3(.19,.25,.75),vec3(.65,.46,.95),sin(t)*.5+.5);c+=highlight*.6;float section=1.;if(uPhase>1.5&&uPhase<2.5)section=.25+.75*smoothstep(.1,.3,sin(t*12.));gl_FragColor=vec4(c*shimmer,uOpacity*section);}
-`;
+export const maskFragment = /* glsl */`void main(){gl_FragColor=vec4(1.);}`;
 
-export const skyFragment = /* glsl */`
-uniform float uArrival;uniform float uTime;uniform float uAspect;varying vec2 vUv;
-${noise}
-void main(){vec3 color=vec3(.0196,.0157,.0392);vec2 sun=vec2(.73,.435);vec2 d=vUv-sun;d.x*=uAspect;float dist=length(d);
- vec3 dusk=vec3(.014,.008,.018);dusk+=vec3(.085,.039,.030)*exp(-abs(vUv.y-.31)*8.);
- dusk+=vec3(.07,.12,.28)*exp(-dist*dist/.065);dusk+=vec3(.19,.32,.58)*exp(-dist*dist/.004);
- dusk+=vec3(.70,.78,.98)*exp(-dist*dist/.000009);
- color=mix(color,dusk,uArrival);gl_FragColor=vec4(color,1.);}
-`;
-
-export const terrainVertex = /* glsl */`
-varying vec3 vPosition;varying float vHeight;
-${noise}
-float height(vec2 p){float h=fbm(vec3(p*.065,2.));float ridge=pow(1.-abs(valueNoise(vec3(p*.11,4.))*2.-1.),3.);return h*5.+ridge*1.7;}
-void main(){vec3 p=position;p.y=height(p.xz)-3.;vPosition=p;vHeight=p.y;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}
-`;
-export const terrainFragment = /* glsl */`
-varying vec3 vPosition;varying float vHeight;uniform float uOpacity;
-${noise}
-void main(){vec3 n=normalize(cross(dFdx(vPosition),dFdy(vPosition)));float sun=max(0.,dot(n,normalize(vec3(.7,.3,-.7))));float detail=fbm(vPosition*1.8);
- vec3 rust=mix(vec3(.075,.027,.021),vec3(.29,.105,.045),detail);rust*=.50+sun*.75;
- float distance=-vPosition.z;float fog=1.-exp(-max(0.,distance)*.023);
- vec3 col=mix(rust,vec3(.095,.071,.095),fog*.80);col+=vec3(.04,.04,.085)*pow(sun,2.);
- gl_FragColor=vec4(col,uOpacity);}
-`;
-
-export const gradeFragment = /* glsl */`
-uniform sampler2D tDiffuse;uniform float uTime;varying vec2 vUv;
-float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-void main(){vec3 c=texture2D(tDiffuse,vUv).rgb;float vignette=1.-.20*pow(length((vUv-.5)*vec2(1.1,.8)),1.5);c*=vignette;float grain=(h(gl_FragCoord.xy+floor(uTime*12.))-.5)*.0035;c+=grain;gl_FragColor=vec4(max(c,0.),1.);}
+/** Hairline silhouette from the mask, revealed by an angular sweep during the intro. */
+export const outlineFragment = /* glsl */`
+uniform sampler2D tMask;uniform vec2 uTexel;uniform vec2 uCenter;uniform float uReveal;uniform float uOpacity;varying vec2 vUv;
+void main(){float c=texture2D(tMask,vUv).r;float mx=c,mn=c;
+ for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){float s=texture2D(tMask,vUv+vec2(i,j)*uTexel).r;mx=max(mx,s);mn=min(mn,s);}
+ float edge=mx-mn;if(edge<.02)discard;
+ vec2 d=vUv-uCenter;float angle=fract(atan(d.x,d.y)/6.2831853+1.);float visible=step(angle,uReveal);
+ float head=smoothstep(.06,0.,uReveal-angle)*step(uReveal,.999);
+ vec3 col=mix(vec3(.90,.84,.75),vec3(1.),head);gl_FragColor=vec4(col,edge*uOpacity*visible*(.85+head*.6));}
 `;

@@ -1,17 +1,26 @@
 import './style.css';
 import gsap from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { CustomEase } from 'gsap/CustomEase';
 import Lenis from 'lenis';
-import 'lenis/dist/lenis.css';
-import { MarsScene } from './scene';
+import { MarsScene, type FrameState, type PanelView, type Pass } from './scene';
+import { Ambient } from './audio';
 
-gsap.registerPlugin(ScrollTrigger);
-const chapters = ['orbit', 'launch', 'loop', 'approach', 'arrival'] as const;
-const phases = [
-  ['Observe', 'Capture real traces from your workflow. Not benchmarks.'],
-  ['Evaluate', 'Score every output against evals you write as code.'],
-  ['Refine', 'Fine-tune an open model on what passed.'],
-  ['Ascend', 'Ship the new weights only if they beat the old ones. Then loop.'],
+gsap.registerPlugin(CustomEase);
+const osmo = CustomEase.create('osmo', '0.625, 0.05, 0, 1');
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+const ease = (value: number, start: number, duration: number) => osmo(clamp01((value - start) / duration));
+
+interface Panel { pass: Pass; label: string; x: number; y: number; w: number; h: number; open: number; element: HTMLElement }
+const INTRO = 3.7;
+const OPEN = .09;
+const CLOSE_START = .78;
+const layout: Omit<Panel, 'open' | 'element'>[] = [
+  { pass: 'wireframe', label: 'iter 000 · wireframe', x: .33, y: .24, w: .32, h: .44 },
+  { pass: 'observe', label: 'iter 001 · observe', x: .35, y: .60, w: .19, h: .32 },
+  { pass: 'evaluate', label: 'iter 002 · evaluate', x: .38, y: .02, w: .28, h: .26 },
+  { pass: 'refine', label: 'iter 003 · refine', x: .22, y: .25, w: .25, h: .26 },
+  { pass: 'beauty', label: 'iter 004 · beauty', x: .47, y: .36, w: .22, h: .24 },
+  { pass: 'beauty', label: 'iter 004 · beauty', x: .615, y: .21, w: .36, h: .54 },
 ];
 const select = <T extends Element = HTMLElement>(selector: string) => {
   const element = document.querySelector<T>(selector);
@@ -19,134 +28,192 @@ const select = <T extends Element = HTMLElement>(selector: string) => {
   return element;
 };
 const canvas = select<HTMLCanvasElement>('#scene');
-const panels = [...document.querySelectorAll<HTMLElement>('.chapter')];
-const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const host = select('.panels');
+const counter = select('#counter');
+const end = select('#waitlist');
 const form = select<HTMLFormElement>('#access-form');
 const email = select<HTMLInputElement>('#email');
-const indicator = select('#chapter-indicator');
-const line = select('.progress-line i');
-const loopTitle = select('#loop-title');
-const loopDescription = select('#loop-description');
-const loopIndex = select('.loop-index');
-const phaseTicks = [...document.querySelectorAll('.phase-track i')];
-let progress = 0;
-let currentChapter = -1;
-let currentPhase = -1;
+const soundButton = select<HTMLButtonElement>('#sound');
+const motion = matchMedia('(prefers-reduced-motion: reduce)');
+const query = new URLSearchParams(location.search);
+const frame = query.get('frame');
+const panels: Panel[] = layout.map(item => {
+  const element = document.createElement('div');
+  element.className = 'panel';
+  element.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>${item.label}</span></div>`;
+  host.append(element);
+  return { ...item, open: -1, element };
+});
+const ambient = new Ambient();
 let scene: MarsScene | undefined;
 let lenis: Lenis | undefined;
-let disposed = false;
+let progress = 0;
+let introTime = 0;
+let introFrozen = false;
+let lastTick = 0;
+let endShown = false;
+let lastCounter = '';
 
 try {
   scene = new MarsScene(canvas);
   document.body.dataset.renderer = 'ready';
 } catch (error) {
-  console.warn('MARS: WebGL unavailable. Showing the static composition.', error);
+  console.warn('MARS: WebGL unavailable, showing the outline only.', error);
   canvas.hidden = true;
   select('#fallback').hidden = false;
   document.body.dataset.renderer = 'fallback';
 }
 
-function draw(time = 0) {
-  const index = Math.min(4, Math.floor(progress * 5));
-  const local = progress * 5 - index;
-  const phase = Math.min(3, Math.floor(local * 4));
-  if (index !== currentChapter) {
-    panels.forEach((panel, i) => { panel.hidden = i !== index; panel.inert = i !== index; });
-    currentChapter = index;
-    document.body.dataset.chapter = chapters[index];
-    indicator.textContent = `${String(index + 1).padStart(2, '0')} — ${chapters[index]}`;
-  }
-  const opacity = motion.matches ? 1 : Math.min(1, local * 14 + (index === 0 ? 1 : 0), (1 - local) * 14 + (index === 4 ? 1 : 0));
-  panels[index].style.opacity = String(opacity);
-  line.style.transform = `scaleX(${progress})`;
-  if (index === 2 && phase !== currentPhase) {
-    currentPhase = phase;
-    loopTitle.textContent = phases[phase][0];
-    loopDescription.textContent = phases[phase][1];
-    loopIndex.innerHTML = `${String(phase + 1).padStart(2, '0')}<span>/04</span>`;
-    phaseTicks.forEach((tick, i) => tick.classList.toggle('active', i === phase));
-    document.body.dataset.phase = String(phase);
-  }
-  select('#launch-copy').textContent = local < .5 ? 'General models know a little about everything.' : 'Yours will know everything about one thing.';
-  const approach = ['Open weights. Yours.', 'Small enough to run anywhere.', 'Day 100 beats day 1.'];
-  select('#approach-copy').textContent = approach[Math.min(2, Math.floor(local * 3))];
-  if (!document.hidden) scene?.render(motion.matches ? (index + .5) / 5 : progress, motion.matches ? 0 : time);
+function panelViews(time: number): PanelView[] {
+  const width = innerWidth, height = innerHeight;
+  const bar = Math.min(innerWidth, innerHeight) < 700 ? 20 : 24;
+  const views: PanelView[] = [];
+  panels.forEach((panel, i) => {
+    const opening = ease(progress, .06 + i * .12, OPEN);
+    const closing = ease(progress, CLOSE_START + (panels.length - 1 - i) * .012, .07);
+    const open = opening * (1 - closing);
+    const w = Math.round(panel.w * width * open), h = Math.round(panel.h * height * open);
+    if (open !== panel.open) {
+      panel.open = open;
+      const style = panel.element.style;
+      style.left = `${Math.round(panel.x * width)}px`;
+      style.top = `${Math.round(panel.y * height)}px`;
+      style.width = `${w}px`;
+      style.height = `${h}px`;
+      style.display = w > 48 && h > bar + 10 ? '' : 'none';
+      style.zIndex = String(i);
+      (panel.element.firstElementChild as HTMLElement).style.width = `${Math.round(panel.w * width)}px`;
+    }
+    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: Math.round(panel.x * width) + 1, y: Math.round(panel.y * height) + bar + 1, w: w - 2, h: h - bar - 2 });
+  });
+  void time;
+  return views;
 }
 
-const trigger = ScrollTrigger.create({
-  trigger: '#journey', start: 'top top', end: 'bottom bottom',
-  onUpdate: self => { progress = self.progress; if (motion.matches || !scene) draw(); },
-});
+function draw(now: number) {
+  const dt = lastTick ? Math.min(.05, now - lastTick) : 0;
+  lastTick = now;
+  if (!introFrozen && introTime < INTRO) {
+    introTime = Math.min(INTRO, introTime + dt);
+    if (introTime >= INTRO) finishIntro();
+  }
+  const t = introTime;
+  const views = panelViews(now);
+  const open = panels.filter(p => p.open > .5).length;
+  const beautyFade = ease(progress, .80, .12);
+  const label = beautyFade > .5 ? 'iter 004 · beauty' : `iter ${String(Math.min(4, Math.max(0, open - 1))).padStart(3, '0')}`;
+  if (label !== lastCounter) { lastCounter = label; counter.textContent = label; }
+  const showEnd = progress > .9;
+  if (showEnd !== endShown) { endShown = showEnd; end.classList.toggle('on', showEnd); }
+  document.body.dataset.scrolled = String(progress > .015);
+  const state: FrameState = {
+    time: now,
+    outlineReveal: ease(t, .3, 1.5),
+    outlineOpacity: 1 - beautyFade * .82,
+    wireReveal: ease(t, 1.4, 1.4),
+    wireOpacity: 1 - ease(t, 3.0, .6),
+    beautyFade,
+    settle: ease(progress, .86, .12),
+    panels: views,
+  };
+  if (!document.hidden) scene?.render(state);
+}
+
+function finishIntro() {
+  if (document.body.dataset.intro !== 'running') return;
+  document.body.dataset.intro = 'done';
+  document.body.dataset.ui = 'on';
+  lenis?.start();
+}
+function skipIntro() {
+  if (introFrozen || introTime >= INTRO) return;
+  gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; } });
+}
 function tick(time: number) {
   lenis?.raf(time * 1000);
-  if (!document.hidden) draw(time);
+  draw(time);
+}
+function onScroll() {
+  const max = document.documentElement.scrollHeight - innerHeight;
+  progress = max > 0 ? clamp01(scrollY / max) : 0;
+  if (motion.matches || !scene) draw(performance.now() / 1000);
 }
 function updateMotion() {
   lenis?.destroy(); lenis = undefined;
   gsap.ticker.remove(tick);
+  if (motion.matches) { introTime = INTRO; finishIntro(); }
   if (!motion.matches && scene) {
-    lenis = new Lenis({ lerp: .085, smoothWheel: true, syncTouch: false });
-    lenis.on('scroll', ScrollTrigger.update);
+    lenis = new Lenis({ lerp: .08, smoothWheel: true, syncTouch: false });
+    lenis.on('scroll', onScroll);
+    if (document.body.dataset.intro === 'running') lenis.stop();
     if (!document.hidden) gsap.ticker.add(tick);
   }
-  draw();
+  onScroll();
 }
 function visibility() {
   gsap.ticker.remove(tick);
+  lastTick = 0;
   if (!document.hidden && !motion.matches && scene) gsap.ticker.add(tick);
 }
-function resize() { scene?.resize(); ScrollTrigger.refresh(); draw(); }
+function resize() { scene?.resize(); for (const panel of panels) panel.open = -1; onScroll(); }
 function jump(value: number) {
   const top = value * (document.documentElement.scrollHeight - innerHeight);
-  if (lenis) lenis.scrollTo(top, { immediate: true }); else window.scrollTo(0, top);
-  ScrollTrigger.update(); progress = value; draw();
+  if (lenis) lenis.scrollTo(top, { immediate: true, force: true }); else scrollTo(0, top);
+  progress = value;
+  draw(performance.now() / 1000);
 }
-function hashJump(event: MouseEvent) {
+function click(event: MouseEvent) {
   const target = (event.target as Element).closest<HTMLAnchorElement>('a[href^="#"]');
   if (!target) return;
   event.preventDefault();
-  jump(target.hash === '#orbit' ? 0 : .92);
+  skipIntro();
+  jump(target.hash === '#waitlist' ? 1 : 0);
   if (target.hash === '#waitlist') email.focus({ preventScroll: true });
 }
 function submit(event: SubmitEvent) {
   event.preventDefault();
   if (!form.reportValidity()) return;
-  // TODO: connect the approved waitlist endpoint; no address is stored or sent yet.
-  select('#form-message').textContent = 'TRANSMISSION RECEIVED — DEMO ONLY. YOUR ADDRESS HAS NOT BEEN STORED.';
-  select<HTMLButtonElement>('#access-form button').textContent = 'You’re on approach ✓';
+  // TODO: post to the waitlist endpoint once one is chosen; nothing is stored yet.
+  select('#form-message').textContent = 'received · demo only, your address was not stored';
+  select<HTMLButtonElement>('#access-form button').textContent = 'on approach ✓';
   email.value = '';
+}
+async function toggleSound() {
+  const on = soundButton.getAttribute('aria-pressed') === 'true';
+  if (on) ambient.stop(); else await ambient.start();
+  soundButton.setAttribute('aria-pressed', String(!on));
+  soundButton.setAttribute('aria-label', on ? 'Ambient sound off' : 'Ambient sound on');
 }
 function contextLost(event: Event) {
   event.preventDefault();
   gsap.ticker.remove(tick);
   lenis?.destroy(); lenis = undefined;
   scene?.dispose(); scene = undefined;
-  canvas.hidden = true; select('#fallback').hidden = false;
+  canvas.hidden = true;
+  select('#fallback').hidden = false;
   document.body.dataset.renderer = 'fallback';
+  finishIntro();
 }
-function dispose() {
-  if (disposed) return;
-  disposed = true;
-  gsap.ticker.remove(tick); trigger.kill(); lenis?.destroy(); scene?.dispose();
-  motion.removeEventListener('change', updateMotion);
-  document.removeEventListener('visibilitychange', visibility);
-  window.removeEventListener('resize', resize);
-  document.removeEventListener('click', hashJump);
-  form.removeEventListener('submit', submit);
-  canvas.removeEventListener('webglcontextlost', contextLost);
-}
+
+document.body.dataset.intro = frame && frame !== 'intro' ? 'done' : 'running';
+if (document.body.dataset.intro === 'done') { introTime = INTRO; document.body.dataset.ui = 'on'; }
 motion.addEventListener('change', updateMotion);
 document.addEventListener('visibilitychange', visibility);
-window.addEventListener('resize', resize);
-document.addEventListener('click', hashJump);
+addEventListener('resize', resize);
+addEventListener('scroll', onScroll, { passive: true });
+addEventListener('wheel', skipIntro, { passive: true });
+addEventListener('touchstart', skipIntro, { passive: true });
+addEventListener('keydown', skipIntro);
+document.addEventListener('click', click);
 form.addEventListener('submit', submit);
+soundButton.addEventListener('click', () => { void toggleSound(); });
 canvas.addEventListener('webglcontextlost', contextLost);
-window.addEventListener('pagehide', event => { if (!event.persisted) dispose(); });
+addEventListener('pagehide', event => { if (!event.persisted) { gsap.ticker.remove(tick); lenis?.destroy(); scene?.dispose(); ambient.dispose(); } });
 updateMotion();
 await document.fonts.ready;
-ScrollTrigger.refresh();
-const frame = new URLSearchParams(location.search).get('frame');
-const frames: Record<string, number> = { orbit: .035, loop: .425, arrival: .94 };
-if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
-else if (location.hash === '#waitlist') jump(.92);
+const frames: Record<string, number> = { rest: 0, mid: .48, full: .72, close: .845, beauty: .97 };
+if (frame === 'intro' && !motion.matches) { introTime = 1.9; introFrozen = true; }
+else if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
+else if (location.hash === '#waitlist') jump(1);
+if (document.body.dataset.intro === 'running' && !introFrozen) setTimeout(() => { introTime = INTRO; finishIntro(); }, INTRO * 1000 + 600);
 document.body.dataset.ready = 'true';
