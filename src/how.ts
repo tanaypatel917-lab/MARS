@@ -124,7 +124,8 @@ function draw(now: number) {
   const dt = lastTick ? Math.min(.05, now - lastTick) : 0;
   lastTick = now;
   if (!start) start = now;
-  const t = now - start;
+  // Reduced motion has no ticker: draw the finished intro so the planet is there before any scroll.
+  const t = motion.matches ? 10 : now - start;
   let stage = 0;
   chapters.forEach((chapter, i) => {
     chapter.shown = chapterProgress(chapter);
