@@ -143,13 +143,24 @@ void main(){vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;vec3 top=vec3(.016,.012,.
 
 /** The empty page itself: near-black, a faint pointer light and live grain, after Guillaume's void shader. */
 export const voidFragment = /* glsl */`
-uniform vec2 uPointer;uniform float uAspect;uniform float uTime;uniform float uLight;uniform float uHorizon;uniform float uWord;uniform sampler2D tWord;varying vec2 vUv;
+uniform vec2 uPointer;uniform float uAspect;uniform float uTime;uniform float uLight;uniform float uHorizon;uniform float uWord;uniform sampler2D tWord;varying vec2 vUv;uniform sampler2D tMask;
+/* Guillaume's void shader: the pointer is a lamp the subject occludes; march toward the light through the mask. */
+float shadow(vec2 uv,vec2 light,float aspect){vec2 d=light-uv;float len=length(d*vec2(aspect,1.));float thick=0.;float j=fract(sin(dot(uv,vec2(12.9898,78.233)))*43758.5453);
+ for(int i=0;i<20;i++){float f=(float(i)+j)/20.;thick+=texture2D(tMask,uv+d*f).r;}
+ thick*=len/20.;return exp(-thick*6.);}
+
 float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 void main(){vec2 d=vUv-uPointer;d.x*=uAspect;float r=length(d);
- vec3 c=vec3(.0196,.0157,.0275);float lamp=exp(-r*r*12.);c+=vec3(.05,.055,.14)*lamp*uLight;c+=vec3(.03,.015,.05)*exp(-r*r*2.6)*uLight*.5;
+ vec3 c=vec3(.0196,.0157,.0275);float lamp=exp(-r*r*12.);float occl=uLight>.001?mix(1.,shadow(vUv,uPointer,uAspect),.8):1.;
+ vec3 lightCol=mix(vec3(.62,.60,.72),vec3(.22,.38,1.),smoothstep(.12,1.,r));
+ c+=vec3(.05,.055,.14)*lamp*uLight*occl;c+=lightCol*vec3(.05,.03,.08)*exp(-r*r*2.6)*uLight*.5*occl;
+ float mk=texture2D(tMask,vUv).r;float halo=0.;{float mx=0.;for(int i=-2;i<=2;i+=2)for(int j=-2;j<=2;j+=2)mx=max(mx,texture2D(tMask,vUv+vec2(i,j)*.0025).r);halo=(mx-mk)*(1.-mk);}
+ c+=lightCol*halo*exp(-r*r*5.)*uLight*.18;
  float wh=.92*uAspect/4.;vec2 wuv=(vUv-vec2(.04,.5-wh*.5))/vec2(.92,wh);
  if(uWord>.001&&wuv.x>0.&&wuv.x<1.&&wuv.y>0.&&wuv.y<1.){float word=texture2D(tWord,wuv).r;c+=vec3(.86,.80,.72)*word*uWord*(.025+exp(-r*r*7.)*.5*uLight);}
- c+=vec3(.10,.16,.40)*exp(-pow(vUv.y/.26,2.))*uHorizon*.55;c+=vec3(.26,.14,.10)*exp(-pow(vUv.y/.09,2.))*uHorizon*.35;
+ float hz=exp(-pow(vUv.y/.26,2.));float hz2=exp(-pow(vUv.y/.09,2.));
+ vec2 cell=floor(gl_FragCoord.xy/2.);float grainH=step(fract(sin(dot(cell,vec2(127.1,311.7))+floor(uTime*6.)*.37)*43758.5453),hz*.55)*.55;
+ c+=vec3(.10,.16,.40)*mix(hz,grainH,.5)*uHorizon*.55;c+=vec3(.26,.14,.10)*hz2*uHorizon*.35;
  float vignette=1.-.35*pow(length((vUv-.5)*vec2(1.,.8)),1.6);c*=vignette;
  c+=(h2(gl_FragCoord.xy+floor(uTime*9.)*.37)-.5)*.022;gl_FragColor=vec4(max(c,0.),1.);}
 `;
