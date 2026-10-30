@@ -31,11 +31,19 @@ export interface FrameState {
   /** /how: relief grows from a smooth clay sphere (0) to the full terrain (1); the home page leaves it at 1. */
   growth?: number;
   /** /how: trace particles fall onto the planet, are scored (fails flung off) and the passes sink into the surface. */
-  traces?: { fall: number; score: number; sink: number };
+  traces?: { fall: number; score: number; sink: number; count?: number; threshold?: number; ms?: Float32Array; born?: Float32Array };
   /** /how ascend 0..1: a wireframe candidate splits off the incumbent and collapses back into it. */
   twin?: number;
   /** Overrides the body's noise materialisation while the beauty pass fades in (home: (1 - beautyFade) * .9). */
   bodySpawn?: number;
+  /** /how ascend: where the dragged candidate sits relative to the incumbent (world units), replacing the scripted arc. */
+  twinOffset?: { x: number; y: number };
+  /** /how ascend: the rejected candidate dissolves line by line (0..1). */
+  shatter?: number;
+  /** /how ascend: pointillist flare in the void at a screen uv when the candidate merges ({ x, y, t } with t 0..1). */
+  flare?: { x: number; y: number; t: number };
+  /** /how refine: Lando-style contour field on the body around an object-space point, radius in object units. */
+  contour?: { x: number; y: number; z: number; r: number };
 }
 
 const BACKGROUND = new THREE.Color(0x050407);
@@ -63,6 +71,13 @@ export class MarsScene {
   private readonly twin: THREE.LineSegments;
   private readonly twinScene = new THREE.Scene();
   private readonly traces: THREE.ShaderMaterial;
+  private traceMs!: THREE.BufferAttribute;
+  private traceBorn!: THREE.BufferAttribute;
+  private lastMs?: Float32Array;
+  private bornVersion = -1;
+  /** Capacity of the trace particle pool. */
+  traceCount = 0;
+  private readonly raycaster = new THREE.Raycaster();
   private readonly tracesScene = new THREE.Scene();
   private readonly beauty: THREE.ShaderMaterial;
   private readonly atmosphere: THREE.ShaderMaterial;
@@ -113,7 +128,7 @@ export class MarsScene {
       if (track) this.bodies.push(object);
       return object;
     };
-    this.wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: 1 } }, transparent: true, depthWrite: false });
+    this.wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: 1 }, uDissolve: { value: 0 } }, transparent: true, depthWrite: false });
     this.transmission = material(shader.transmissionFragment, { uTime: { value: 0 }, uRect: { value: new THREE.Vector4() } });
     const bake = new THREE.WebGLRenderTarget(q.bake, q.bake / 2, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     const bakeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.bakeFragment, depthTest: false, depthWrite: false });
@@ -124,7 +139,7 @@ export class MarsScene {
     this.renderer.setRenderTarget(null);
     bakeMaterial.dispose();
     this.disposables.push(bake);
-    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, uGrowth: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key } });
+    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, uGrowth: { value: 1 }, uContour: { value: new THREE.Vector4() }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key } });
     this.atmosphere = material(shader.atmosphereFragment, { uFade: { value: 1 }, uKey: { value: this.key } }, { transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
     this.disposables.push(this.wire);
     const wireScene = new THREE.Scene();
@@ -134,7 +149,8 @@ export class MarsScene {
     this.twin = new THREE.LineSegments(wire, this.wire);
     this.twinScene.add(this.twin);
     const count = mobile ? 900 : 2000;
-    const dirs = new Float32Array(count * 3), lands = new Float32Array(count * 3), tangents = new Float32Array(count * 3), seeds = new Float32Array(count), passed = new Float32Array(count);
+    const dirs = new Float32Array(count * 3), lands = new Float32Array(count * 3), tangents = new Float32Array(count * 3), seeds = new Float32Array(count), ms = new Float32Array(count), index = new Float32Array(count);
+    this.traceCount = count;
     const dir = new THREE.Vector3(), land = new THREE.Vector3(), tangent = new THREE.Vector3(), up = new THREE.Vector3();
     for (let i = 0; i < count; i++) {
       const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
@@ -142,7 +158,7 @@ export class MarsScene {
       bodyPoint(kind, dir, land).toArray(lands, i * 3);
       tangent.crossVectors(dir, Math.abs(u) < .9 ? up.set(0, 1, 0) : up.set(1, 0, 0)).normalize().toArray(tangents, i * 3);
       seeds[i] = Math.random();
-      passed[i] = Math.random() < .72 ? 1 : 0;
+      ms[i] = 620; index[i] = i;
     }
     const traceGeometry = new THREE.BufferGeometry();
     traceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
@@ -150,8 +166,12 @@ export class MarsScene {
     traceGeometry.setAttribute('aLand', new THREE.BufferAttribute(lands, 3));
     traceGeometry.setAttribute('aTangent', new THREE.BufferAttribute(tangents, 3));
     traceGeometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
-    traceGeometry.setAttribute('aPass', new THREE.BufferAttribute(passed, 1));
-    this.traces = new THREE.ShaderMaterial({ vertexShader: shader.tracesVertex, fragmentShader: shader.tracesFragment, uniforms: { uFall: { value: 0 }, uScore: { value: 0 }, uSink: { value: 0 }, uTime: { value: 0 }, uDpr: { value: 1 }, uRadius: { value: kind === 'shard' ? .72 : 1.0 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.traceMs = new THREE.BufferAttribute(ms, 1);
+    traceGeometry.setAttribute('aMs', this.traceMs);
+    this.traceBorn = new THREE.BufferAttribute(new Float32Array(count), 1);
+    traceGeometry.setAttribute('aBorn', this.traceBorn);
+    traceGeometry.setAttribute('aIndex', new THREE.BufferAttribute(index, 1));
+    this.traces = new THREE.ShaderMaterial({ vertexShader: shader.tracesVertex, fragmentShader: shader.tracesFragment, uniforms: { uFall: { value: 0 }, uScore: { value: 0 }, uSink: { value: 0 }, uTime: { value: 0 }, uDpr: { value: 1 }, uRadius: { value: kind === 'shard' ? .72 : 1.0 }, uCount: { value: count }, uThreshold: { value: 800 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     const points = new THREE.Points(traceGeometry, this.traces);
     points.frustumCulled = false;
     this.tracesScene.add(points);
@@ -191,7 +211,7 @@ export class MarsScene {
     this.disposables.push(this.outline);
     mesh(quad, this.outline, this.outlineScene, false).frustumCulled = false;
     this.voidMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.voidFragment, depthTest: false, depthWrite: false,
-      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 }, uHorizon: { value: 0 }, uWord: { value: 0 }, tWord: { value: null }, tMask: { value: this.mask.texture } } });
+      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 }, uHorizon: { value: 0 }, uWord: { value: 0 }, tWord: { value: null }, tMask: { value: this.mask.texture }, uFlare: { value: new THREE.Vector3() } } });
     this.disposables.push(this.voidMaterial);
     mesh(quad, this.voidMaterial, this.voidScene, false).frustumCulled = false;
     this.resize();
@@ -202,6 +222,20 @@ export class MarsScene {
     mesh(geometry, m, scene);
     return scene;
   }
+
+  /** Object-space point on the body under a pointer in NDC (-1..1), or null. */
+  pick(x: number, y: number): THREE.Vector3 | null {
+    this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
+    const hit = this.raycaster.intersectObject(this.bodies[0], false)[0];
+    return hit ? this.bodies[0].worldToLocal(hit.point.clone()) : null;
+  }
+  /** Screen position (px) of a world-space offset from the body's centre. */
+  project(offsetX: number, offsetY: number) {
+    const p = this.bodies[0].position.clone().add(new THREE.Vector3(offsetX, offsetY, 0)).project(this.camera);
+    return { x: (p.x * .5 + .5) * innerWidth, y: (.5 - p.y * .5) * innerHeight };
+  }
+  /** World units per CSS pixel at the body's depth. */
+  get unitsPerPixel() { return this.unitsPerHalfHeight / (innerHeight / 2); }
 
   /** World units spanned by half the viewport height at the planet's depth. */
   get unitsPerHalfHeight() { return 1.07 / this.fraction; }
@@ -254,8 +288,11 @@ export class MarsScene {
     this.transmission.uniforms.uTime.value = state.time;
     this.beauty.uniforms.uTime.value = state.time;
     this.beauty.uniforms.uGrowth.value = state.growth ?? 1;
+    const ct = state.contour; this.beauty.uniforms.uContour.value.set(ct?.x ?? 0, ct?.y ?? 0, ct?.z ?? 0, ct?.r ?? 0);
+    this.voidMaterial.uniforms.uFlare.value.set(state.flare?.x ?? 0, state.flare?.y ?? 0, state.flare?.t ?? 0);
     this.wire.uniforms.uReveal.value = state.wireReveal;
     this.wire.uniforms.uOpacity.value = state.wireOpacity;
+    this.wire.uniforms.uDissolve.value = 0;
 
     r.setRenderTarget(this.mask);
     r.setScissorTest(false);
@@ -278,6 +315,9 @@ export class MarsScene {
     if (state.traces && state.traces.fall > .001) {
       const u = this.traces.uniforms;
       u.uFall.value = state.traces.fall; u.uScore.value = state.traces.score; u.uSink.value = state.traces.sink;
+      u.uCount.value = state.traces.count ?? this.traceCount; u.uThreshold.value = state.traces.threshold ?? 800;
+      if (state.traces.ms && state.traces.ms !== this.lastMs) { this.lastMs = state.traces.ms; (this.traceMs.array as Float32Array).set(state.traces.ms.subarray(0, this.traceCount)); this.traceMs.needsUpdate = true; }
+      if (state.traces.born && (state.traces.count ?? 0) !== this.bornVersion) { this.bornVersion = state.traces.count ?? 0; (this.traceBorn.array as Float32Array).set(state.traces.born.subarray(0, this.traceCount)); this.traceBorn.needsUpdate = true; }
       u.uTime.value = state.time; u.uDpr.value = this.ratio;
       r.render(this.tracesScene, this.camera);
     }
@@ -285,13 +325,14 @@ export class MarsScene {
       const arc = Math.sin(state.twin * Math.PI);
       const first = this.bodies[0];
       this.twin.rotation.copy(first.rotation);
-      this.twin.scale.copy(first.scale).multiplyScalar(1 - arc * .2);
+      this.twin.scale.copy(first.scale).multiplyScalar(state.twinOffset ? .55 : 1 - arc * .2);
       this.twin.position.copy(first.position);
-      this.twin.position.x -= arc * 1.8 * first.scale.x;
-      this.twin.position.y += arc * .22 * first.scale.x;
+      if (state.twinOffset) { this.twin.position.x += state.twinOffset.x; this.twin.position.y += state.twinOffset.y; }
+      else { this.twin.position.x -= arc * 1.8 * first.scale.x; this.twin.position.y += arc * .22 * first.scale.x; }
       this.twin.updateMatrixWorld();
       this.wire.uniforms.uReveal.value = 1;
-      this.wire.uniforms.uOpacity.value = Math.min(1, arc * 1.6) * .85;
+      this.wire.uniforms.uDissolve.value = state.shatter ?? 0;
+      this.wire.uniforms.uOpacity.value = (state.twinOffset ? Math.min(1, state.twin * 3) : Math.min(1, arc * 1.6)) * .85 * (1 - (state.shatter ?? 0));
       r.render(this.twinScene, this.camera);
     }
     const height = innerHeight;
