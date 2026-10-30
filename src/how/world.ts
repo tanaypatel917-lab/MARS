@@ -39,13 +39,20 @@ void main(){
   float n=vnoise(vec3(vUv*7.,uTime*.25))*.5+vnoise(vec3(vUv*19.,-uTime*.4))*.5;
   float edge=uReveal*1.25-.12;
   if(n>edge)discard;
-  vec3 c=texture2D(tPass,vUv).rgb;
+  vec3 c=max(texture2D(tPass,vUv).rgb,uFog*.22);
   float rim=smoothstep(edge-.09,edge,n);
   c=mix(c,vec3(1.,.9,.8),rim*.85);
   float vig=smoothstep(.9,.35,length(vUv-.5));
   c*=.72+.28*vig;
   gl_FragColor=vec4(c,1.);
 }`;
+/** The hero's beauty pass re-lit for a stone standing in dust: the planet's blue limb and sky fill become the fog colour. */
+const steleFragment = shader.beautyFragment
+  .replace('uniform vec3 uKey;varying vec3 vNormal;', 'uniform vec3 uKey;uniform vec3 uFog;varying vec3 vNormal;')
+  .replace('vec3 rimColor=mix(vec3(.22,.38,1.),vec3(.52,.30,.95),smoothstep(-.6,.6,n.y));', 'vec3 rimColor=uFog*2.6+vec3(.10,.06,.03);')
+  .replace('rimColor*fresnel*(.12+soft*.75)', 'rimColor*fresnel*(.10+soft*.45)')
+  .replace('albedo*wrap*vec3(.07,.11,.30)', 'albedo*wrap*(uFog*1.6+vec3(.04,.02,.01))')
+  .replace('c+=albedo*vec3(.05,.08,.18)*(1.-terminator)*.35;c+=vec3(.2,.3,.7)*exp(', 'c+=albedo*uFog*.9*(1.-terminator);c+=uFog*2.*exp(');
 const withoutTime = (u: ReturnType<typeof steleUniforms>) => { const { uTime: _t, ...rest } = u; return rest; };
 const screenVertex = /* glsl */`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 
@@ -86,7 +93,7 @@ export class HowWorld {
     const stele = steleGeometry(detail);
     this.facetCount = stele.facetCount; this.facetOfFace = stele.facetOfFace;
     this.disposables.push(stele.body, stele.seams);
-    this.steleMaterial = new THREE.ShaderMaterial({ vertexShader: steleVertexShader(shader.bodyVertex), fragmentShader: shader.beautyFragment, uniforms: {
+    this.steleMaterial = new THREE.ShaderMaterial({ vertexShader: steleVertexShader(shader.bodyVertex), fragmentShader: steleFragment, uniforms: { uFog: { value: new THREE.Color() },
       uMorph: { value: 0 }, uWordScale: { value: 1 }, uBox: { value: new THREE.Vector2(1, 1) }, tWord: { value: null }, uSpawn: { value: 0 },
       uTime: { value: 0 }, uFade: { value: 1 }, uGrowth: { value: 1 }, uContour: { value: new THREE.Vector4() }, tTerrain: { value: bake.texture },
       uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key }, ...withoutTime(steleUniforms()) } });
@@ -96,7 +103,7 @@ export class HowWorld {
 
     const declaresFacet = steleVertexChunk.includes('varying float vFacet');
     this.seamMaterial = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      vertexShader: `${steleVertexChunk}${declaresFacet ? '' : 'varying float vFacet;'}varying vec3 vN;void main(){vec3 n=normal;vec3 p=steleDisplace(position,n);vFacet=aFacet;vN=normalize(normalMatrix*n);gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}`,
+      vertexShader: `${steleVertexChunk}${declaresFacet ? '' : 'varying float vFacet;'}varying vec3 vNormal;varying vec3 vView;void main(){vec3 n=normal;vec3 p=steleDisplace(position,n);vFacet=aFacet;vNormal=normalize(normalMatrix*n);vec4 mv=modelViewMatrix*vec4(p,1.);vView=-mv.xyz;gl_Position=projectionMatrix*mv;}`,
       fragmentShader: seamFragment, uniforms: { ...steleUniforms(), uSeam: { value: .1 } } });
     this.seams = new THREE.LineSegments(stele.seams, this.seamMaterial);
     this.seams.frustumCulled = false;
@@ -158,6 +165,8 @@ export class HowWorld {
     u.uFacet.value = state.facet; u.uLift.value = state.lift; u.uExplode.value = state.explode;
     const s = this.seamMaterial.uniforms;
     s.uTime.value = state.time; s.uFacet.value = state.facet; s.uLift.value = state.lift; s.uExplode.value = state.explode;
+    (u.uFog.value as THREE.Color).copy(this.landscape.fog);
+    (u.uCam.value as THREE.Vector3).copy(this.camera.position).normalize(); (s.uCam.value as THREE.Vector3).copy(u.uCam.value as THREE.Vector3);
     s.uSeam.value = (.06 + state.explode * .18) * (1 - state.spawn);
     this.stele.rotation.y = Math.sin(state.time * .05) * .04;
     this.seams.rotation.copy(this.stele.rotation);
@@ -170,7 +179,7 @@ export class HowWorld {
     this.screen.visible = visible;
     if (visible) {
       this.passes.render(state.pass, state.time, state.pointer, state.blend);
-      this.screenMaterial.uniforms.uReveal.value = state.reveal;
+      this.screenMaterial.uniforms.uReveal.value = state.reveal; (this.screenMaterial.uniforms.uFog.value as THREE.Color).copy(this.landscape.fog);
       this.screenMaterial.uniforms.uTime.value = state.time;
       this.screen.rotation.set(-state.tilt.y * .16, yaw + state.tilt.x * .22, 0);
       this.screen.position.y = .15 + Math.sin(state.time * .8) * .02;

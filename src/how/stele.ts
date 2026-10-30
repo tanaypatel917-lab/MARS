@@ -265,7 +265,7 @@ export function steleGeometry(detail: number): Stele {
   return { body, seams, facetCount, facetOfFace };
 }
 
-export const steleUniforms = () => ({ uFacet: { value: -1 }, uExplode: { value: 0 }, uLift: { value: 0 }, uTime: { value: 0 } });
+export const steleUniforms = () => ({ uFacet: { value: -1 }, uExplode: { value: 0 }, uLift: { value: 0 }, uTime: { value: 0 }, uCam: { value: new THREE.Vector3(0, 0, 1) } });
 
 /**
  * GPU displacement of one facet. Hover: the facet rides out along its mean normal by uLift*.06 (uLift is tweened by the page;
@@ -276,7 +276,7 @@ export const steleUniforms = () => ({ uFacet: { value: -1 }, uExplode: { value: 
  */
 export const steleVertexChunk = /* glsl */`
 attribute float aFacet;attribute vec3 aCentroid;attribute vec3 aFacetN;attribute float aRand;
-uniform float uFacet;uniform float uExplode;uniform float uLift;uniform float uTime;
+uniform float uFacet;uniform float uExplode;uniform float uLift;uniform float uTime;uniform vec3 uCam;
 varying float vFacet;
 mat3 steleRotation(vec3 k,float a){float c=cos(a),s=sin(a),t=1.-c;
  return mat3(t*k.x*k.x+c,t*k.x*k.y+s*k.z,t*k.x*k.z-s*k.y, t*k.x*k.y-s*k.z,t*k.y*k.y+c,t*k.y*k.z+s*k.x, t*k.x*k.z+s*k.y,t*k.y*k.z-s*k.x,t*k.z*k.z+c);}
@@ -294,7 +294,9 @@ vec3 steleDisplace(vec3 p,inout vec3 n){
  n=R*n;
  vec3 q=R*((p-aCentroid)*(1.-e*.12));
  float bob=sin(uTime*(.6+aRand)+aRand*6.)*e*.08;
- return aCentroid+q+aFacetN*(e*(1.1+aRand*.9)+lift)+vec3(0.,1.,0.)*bob+axis*bob*.35;}
+ float facing=smoothstep(.15,.85,dot(aFacetN,uCam));
+ vec3 lat=aCentroid-uCam*dot(aCentroid,uCam);lat=length(lat)>.02?normalize(lat):vec3(1.,0.,0.);
+ return aCentroid+q+aFacetN*(e*(.72+aRand*.55)+lift)+lat*facing*e*(1.05+aRand*.4)+vec3(0.,1.,0.)*bob+axis*bob*.35;}
 `;
 
 /** Splices the chunk into src/shaders.ts bodyVertex: the facet displacement runs before the wordmark morph, which is zero on /how. */
