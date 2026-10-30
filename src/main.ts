@@ -137,7 +137,8 @@ function panelViews(): PanelView[] {
       style.zIndex = String(i);
       (panel.element.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
     }
-    const spawn = SPAWN_ALLOWED ? Math.max(1 - smooth((opening - .02) / .5), smooth((closing - .1) / .6)) : 0;
+    // De-materialise on close only while the window is the sole view of the planet; over the finished planet the discarded cells would show as dark holes.
+    const spawn = SPAWN_ALLOWED ? Math.max(1 - smooth((opening - .02) / .5), progress > .80 ? 0 : smooth((closing - .1) / .6)) : 0;
     if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2, spawn });
   });
   return views;
