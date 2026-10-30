@@ -27,7 +27,7 @@ export class Simulation implements Scorer {
   }
   train(verdict: Verdict, hours: number) {
     const data = Math.min(1, verdict.passed.length / 60);
-    return Math.min(.97, .3 + data * .32 + Math.min(hours, 8) * .045 + verdict.rate * .1);
+    return Math.min(.97, .22 + data * .2 + Math.min(hours, 8) * .06 + verdict.rate * .1);
   }
 }
 

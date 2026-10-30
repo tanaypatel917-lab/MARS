@@ -192,7 +192,7 @@ export class HowWorld {
     if (!hit) return null;
     const local = hit.object.worldToLocal(hit.point.clone());
     const facet = section === 0 && hit.face ? this.facetOf[hit.face.a] : -1;
-    return { kind: kinds[section], point: hit.point, local, index: hit.index ?? (hit.object === this.incumbent ? 1 : 0), facet, distance: hit.distance };
+    return { kind: kinds[section], point: hit.point, local, index: section === 4 ? (hit.object === this.incumbent ? 1 : 0) : hit.index ?? 0, facet, distance: hit.distance };
   }
   /** Screen position of a world point. */
   project(point: THREE.Vector3) { const p = point.clone().project(this.camera); return { x: (p.x * .5 + .5) * innerWidth, y: (.5 - p.y * .5) * innerHeight, behind: p.z > 1 }; }

@@ -79,7 +79,7 @@ const panel = document.createElement('div'); panel.className = 'panel how-panel'
 panel.innerHTML = '<div class="bar"><i></i><i></i><i></i><span></span></div><div class="pane"></div>';
 panels.appendChild(panel);
 const panelLabel = select('.bar span', panel), pane = select('.pane', panel);
-let panelShown = false;
+let panelShown = false, holdUntil = 0;
 const showPanel = (x: number, y: number, label: string, html: string) => {
   panelLabel.textContent = label; pane.innerHTML = html;
   panel.style.transform = `translate(${Math.round(clamp(x + 22, 12, innerWidth - 260))}px, ${Math.round(clamp(y - 18, 12, innerHeight - 140))}px)`;
@@ -101,7 +101,7 @@ const handleHover = (dt: number) => {
   hit = world && s >= 0 && !pointer.dragging ? world.pick(s, pointer.nx, pointer.ny) : null;
   state.facet = -1; state.contour = null;
   document.body.classList.toggle('over', !!hit);
-  if (!hit) { if (s !== 3 || !pointer.down) engrave.update(dt, s === 2 && state.engrave > .5 ? 1 : 0); hidePanel(); state.engrave = engrave.value; return; }
+  if (!hit) { if (s !== 3 || !pointer.down) engrave.update(dt, s === 2 && state.engrave > .5 ? 1 : 0); if (performance.now() > holdUntil) hidePanel(); state.engrave = engrave.value; return; }
   const at = world!.project(hit.point);
   if (s === 0) {
     state.facet = hit.facet;
@@ -113,7 +113,7 @@ const handleHover = (dt: number) => {
     setReveal(1, `${traces.length} traces. this one: "${t.label}", ${fmt.ms(t.ms)}.`);
   } else if (s === 2) {
     state.engrave = engrave.update(dt, 1);
-    showPanel(at.x, at.y, 'evals/triage.ts', `${verdict.passed.length} of ${traces.length} pass at ${fmt.ms(THRESHOLD)} · ${fmt.pct(verdict.rate)}<br><i>click to score a trace as it passes</i>`);
+    if (performance.now() > holdUntil) showPanel(at.x, at.y, 'evals/triage.ts', `${verdict.passed.length} of ${traces.length} pass at ${fmt.ms(THRESHOLD)} · ${fmt.pct(verdict.rate)}<br><i>click to score a trace as it passes</i>`);
   } else if (s === 3) {
     const l = hit.local.clone().normalize();
     state.contour = { x: l.x, y: l.y, z: l.z, r: .55 };
@@ -135,6 +135,7 @@ const crack = () => {
 };
 const scoreOne = (at: { x: number; y: number }) => {
   const t = traces[Math.floor(Math.random() * traces.length)], pass = t.ms < THRESHOLD;
+  holdUntil = performance.now() + 2600;
   showPanel(at.x, at.y, `trace ${String(t.id).padStart(4, '0')} · ${pass ? 'pass' : 'fail'}`, `${t.label}<br>${fmt.ms(t.ms)} ${pass ? '<' : '≥'} ${fmt.ms(THRESHOLD)} · ${pass ? 'kept for training' : 'falls away'}`);
   setReveal(2, `${verdict.passed.length} of ${traces.length} pass at ${fmt.ms(THRESHOLD)}. last scored: "${t.label}", ${fmt.ms(t.ms)} · ${pass ? 'pass' : 'fail'}.`);
 };
@@ -152,9 +153,12 @@ const runGate = () => {
     gsap.delayedCall(3.2, () => { state.shatter = 0; state.flare = 0; state.candidateOffset = null; gate = 'idle'; hours = Math.max(0, hours - 2); state.growth = Math.min(1, hours / 6); });
   } });
 };
-canvas.addEventListener('pointerdown', e => {
+addEventListener('pointerdown', e => {
+  if ((e.target as Element | null)?.closest('a, button, .copy, .ui')) return;
   pointer.down = true; pointer.lastX = e.clientX; pointer.dragging = false;
+  pointer.x = e.clientX; pointer.y = e.clientY; pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
   const s = section();
+  hit = world && s >= 0 ? world.pick(s, pointer.nx, pointer.ny) : null;
   if (!hit) return;
   if (s === 0) crack();
   else if (s === 2) scoreOne(world!.project(hit.point));
@@ -182,6 +186,7 @@ const frame = (now: number) => {
   state.time = (now - start) / 1000;
   state.fade = Math.min(1, state.fade + dt * .6);
   state.progress = progressNow();
+  if (cracked && state.progress > .6) crack();
   state.fieldSpin = spin.update(dt, spinTarget);
   state.candidateOrbit += dt * .35;
   handleHover(dt); odometer.update(dt);
@@ -192,14 +197,16 @@ const frame = (now: number) => {
   tag.textContent = stages[s]?.dataset.hint ?? '';
   railFill.style.transform = `scaleY(${state.progress / 4})`;
   if (world) {
-    crackPanels.forEach((el, i) => { if (!el.hidden) { const p = world!.project(world!.groups[0].localToWorld(CRACK_ANCHORS[i].clone().multiplyScalar((mobile ? .875 : 1.25) * (1 + state.crack * .35)).add(new THREE.Vector3(mobile ? .15 : 1.15, mobile ? .8 : 0, 0)))); el.style.transform = `translate(${Math.round(p.x - 90)}px, ${Math.round(p.y - 24)}px)`; } });
+    crackPanels.forEach((el, i) => { if (!el.hidden) { const p = world!.project(world!.groups[0].localToWorld(CRACK_ANCHORS[i].clone().multiplyScalar((mobile ? .875 : 1.25) * (1 + state.crack * .35)).add(new THREE.Vector3(mobile ? .15 : 1.15, mobile ? .8 : 0, 0)))); el.style.transform = `translate(${Math.round(clamp(p.x - 90, 12, innerWidth - 192))}px, ${Math.round(clamp(p.y - 24, 12, innerHeight - 130))}px)`; } });
     world.render(state);
   }
   if (fine.matches) cursor.style.transform = `translate(${pointer.x - 3.5}px, ${pointer.y - 3.5}px) scale(${hit ? 2.2 : 1})`;
   requestAnimationFrame(frame);
 };
 cursor.style.opacity = fine.matches ? '1' : '0';
+document.body.dataset.renderer = world ? 'ready' : 'fallback'; document.body.dataset.intro = 'done'; document.body.dataset.ui = 'on';
 if (lenis) gsap.ticker.add(t => lenis.raf(t * 1000));
 addEventListener('resize', () => world?.resize());
 if (location.search.includes('frame=')) { const i = ['loop', 'observe', 'evaluate', 'refine', 'ascend'].indexOf(new URLSearchParams(location.search).get('frame') ?? ''); if (i >= 0) { if (lenis) lenis.scrollTo(stages[i], { immediate: true, force: true }); else stages[i].scrollIntoView(); if (new URLSearchParams(location.search).get('demo')) { hours = 4.5; state.growth = .75; } } }
 requestAnimationFrame(frame);
+document.body.dataset.ready = 'true';
