@@ -24,8 +24,8 @@ try {
     assert.equal(await page.locator('body').getAttribute('data-intro'), 'done');
     assert.equal(await counter(), expected);
     assert.equal(await visiblePanels(), open);
-    assert.equal(await page.locator('canvas').count(), 1);
-    const size = await page.locator('canvas').evaluate(c => [c.width, c.height]);
+    assert.equal(await page.locator('canvas#scene').count(), 1);
+    const size = await page.locator('canvas#scene').evaluate(c => [c.width, c.height]);
     assert(size[0] * size[1] <= 2_400_000);
   }
   console.log('PASS: rest/mid/beauty frames, panel counts, one canvas within the pixel budget');
