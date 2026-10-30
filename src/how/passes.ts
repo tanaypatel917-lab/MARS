@@ -47,15 +47,15 @@ export class LivePasses {
   constructor(renderer: THREE.WebGLRenderer, mobile: boolean) {
     this.renderer = renderer;
     const width = mobile ? 512 : 768, height = mobile ? 320 : 480;
-    const rt = () => new THREE.WebGLRenderTarget(width, height, { depthBuffer: true, stencilBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    const rt = () => new THREE.WebGLRenderTarget(width, height, { depthBuffer: true, stencilBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, samples: mobile ? 0 : 4 });
     this.out = rt(); this.prev = rt();
     this.texture = this.out.texture;
     this.disposables.push(this.out, this.prev);
     const detail = mobile ? 22 : 36;
     const rand = seeded(7.3);
 
-    // terrain bake shared by every beauty-shaded body (the screen is small; half the world's resolution is plenty)
-    const bake = new THREE.WebGLRenderTarget(mobile ? 512 : 1024, mobile ? 256 : 512, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    // terrain bake shared by every beauty-shaded body (full resolution: refine flies low over it)
+    const bake = new THREE.WebGLRenderTarget(mobile ? 512 : 2048, mobile ? 256 : 1024, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     const quad = new THREE.PlaneGeometry(2, 2);
     const bakeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.bakeFragment, depthTest: false, depthWrite: false });
     const bakeScene = new THREE.Scene(); bakeScene.add(new THREE.Mesh(quad, bakeMaterial));
@@ -79,18 +79,34 @@ export class LivePasses {
     const camera = (x: number, y: number, z: number) => { const c = new THREE.PerspectiveCamera(30, ASPECT, .1, 60); c.position.set(x, y, z); c.lookAt(0, 0, 0); return c; };
     const dpr = width / 768 * 1.3;
 
-    // 0 · the loop: the home page's Mars, slowly turning under the drifting key, blue limb from the back-facing shell
+    // shared bodies: every pass is a camera move on the same world — the planet (the model), its blue limb, and the runs (the data)
+    const planetGeo = body(planetGeometry(detail, 'planet'));
+    const shellGeo = body(planetGeometry(detail, 'planet')).scale(1.03, 1.03, 1.03);
+    const atmosphereMaterial = () => {
+      const m = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader: shader.atmosphereFragment, uniforms: { ...morph(), uFade: { value: 1 }, uKey: { value: this.key } }, transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
+      this.disposables.push(m); return m;
+    };
+    const Y = new THREE.Vector3(0, 1, 0);
+
+    // 0 · the loop: the home page's Mars under the drifting key, and a ring of runs circling it — the loop itself
     {
       const scene = new THREE.Scene();
-      const planetGeo = body(planetGeometry(detail, 'planet'));
-      const shellGeo = planetGeo.clone().scale(1.03, 1.03, 1.03); this.disposables.push(shellGeo);
-      const atmosphere = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader: shader.atmosphereFragment, uniforms: { ...morph(), uFade: { value: 1 }, uKey: { value: this.key } }, transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
-      this.disposables.push(atmosphere);
       const planet = new THREE.Mesh(planetGeo, beautyMaterial());
-      const shell = new THREE.Mesh(shellGeo, atmosphere); shell.renderOrder = 1;
-      const group = new THREE.Group(); group.add(planet, shell); scene.add(group);
-      this.passes[0] = { scene, camera: camera(0, 0, 5.7), update: (time, _elapsed, pointer) => {
-        group.rotation.set(.18 - pointer.y * .07, time * .045 + pointer.x * .1, -.08);
+      const shell = new THREE.Mesh(shellGeo, atmosphereMaterial()); shell.renderOrder = 1;
+      const count = mobile ? 320 : 640;
+      const geometry = traceGeometry(count, rand, (i, out) => { const a = i / count * Math.PI * 2 + (rand() - .5) * .03, r = 1.58 + Math.pow(rand(), 2.2) * .26; out.set(Math.cos(a) * r, (rand() - .5) * .04, Math.sin(a) * r); });
+      this.disposables.push(geometry);
+      const material = tracesMaterial(count, dpr * .8); this.disposables.push(material);
+      material.uniforms.uRadius.value = 1.0;
+      const ring = new THREE.Points(geometry, material); ring.frustumCulled = false; ring.renderOrder = 2;
+      const orbit = new THREE.Group(); orbit.rotation.set(1.18, 0, .36); orbit.add(ring);
+      const group = new THREE.Group(); group.add(planet, shell, orbit); scene.add(group);
+      this.passes[0] = { scene, camera: camera(0, 0, 5.7), update: (time, elapsed, pointer) => {
+        material.uniforms.uTime.value = time;
+        planet.rotation.set(.18, time * .045, -.08); shell.rotation.copy(planet.rotation);
+        ring.rotation.y = -time * .16;
+        material.uniforms.uFall.value = settle((elapsed - .3) / 1.8); // the runs gather onto the orbit
+        group.rotation.set(-pointer.y * .07, pointer.x * .1, 0);
         group.position.set(pointer.x * .04, pointer.y * .03, 0);
       } };
     }
@@ -145,29 +161,36 @@ export class LivePasses {
       } };
     }
 
-    // 3 · refine: the slab, whose terrain grows in over six seconds while a contour ring surveys its surface
+    // 3 · refine: low over the planet's surface — the terrain grows in over six seconds while a contour survey orbits the ground ahead
     {
       const scene = new THREE.Scene();
-      const slabGeo = body(planetGeometry(detail, 'shard'));
       const material = beautyMaterial();
-      const slab = new THREE.Mesh(slabGeo, material); slab.scale.set(1.5, .55, 1.1); scene.add(slab);
-      const contour = new THREE.Vector3();
-      this.passes[3] = { scene, camera: camera(0, 1.5, 5.5), update: (time, elapsed, pointer) => {
+      const ground = new THREE.Mesh(planetGeo, material);
+      const shellMaterial = atmosphereMaterial(); shellMaterial.uniforms.uFade.value = .6;
+      const shell = new THREE.Mesh(shellGeo, shellMaterial); shell.renderOrder = 1;
+      scene.add(ground, shell);
+      const cam = new THREE.PerspectiveCamera(36, ASPECT, .02, 40);
+      const rest = new THREE.Vector3(0, .72, 1.1), aim = new THREE.Vector3(0, .84, .107), contour = new THREE.Vector3();
+      this.passes[3] = { scene, camera: cam, update: (time, elapsed, pointer) => {
         material.uniforms.uGrowth.value = easeInOut((elapsed - .2) / 6);
-        const a = time * .55;
-        contour.set(Math.cos(a), .25 + Math.sin(a * .7) * .3, Math.sin(a)).normalize();
-        material.uniforms.uContour.value.set(contour.x, contour.y, contour.z, .42 * settle(elapsed / 1.5));
-        slab.rotation.set(.25 - pointer.y * .06, time * .05 + pointer.x * .08, 0);
+        const spin = time * .03;
+        ground.rotation.set(0, spin, 0); shell.rotation.y = spin;
+        const a = time * .45;
+        contour.set(Math.sin(a) * .16, .745, .667 + Math.cos(a) * .09).normalize().applyAxisAngle(Y, -spin);
+        material.uniforms.uContour.value.set(contour.x, contour.y, contour.z, .1 * settle(elapsed / 1.5));
+        cam.position.set(rest.x + pointer.x * .05, rest.y + pointer.y * .03, rest.z);
+        cam.lookAt(aim.x + pointer.x * .1, aim.y + pointer.y * .05, aim.z);
       } };
     }
 
-    // 4 · ascend: the incumbent shard with a wire candidate orbiting; every ~5 s the candidate flies in, merges with a flash, and a new one is drawn
+    // 4 · ascend: the incumbent planet with a wire candidate orbiting it like a moon; every ~5 s the candidate flies in and merges with a flash, and a new one is drawn on the orbit
     {
       const scene = new THREE.Scene();
-      const shardGeo = body(planetGeometry(detail, 'shard'));
       const material = beautyMaterial();
-      const incumbent = new THREE.Mesh(shardGeo, material); incumbent.scale.setScalar(1.08); scene.add(incumbent);
-      const wireGeo = wireGeometry(mobile ? 160 : 260, 'shard'); this.disposables.push(wireGeo);
+      const incumbent = new THREE.Mesh(planetGeo, material);
+      const shell = new THREE.Mesh(shellGeo, atmosphereMaterial()); shell.renderOrder = 1;
+      const world = new THREE.Group(); world.add(incumbent, shell); scene.add(world);
+      const wireGeo = wireGeometry(mobile ? 160 : 260, 'planet'); this.disposables.push(wireGeo);
       const wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: .85 }, uDissolve: { value: 0 } }, transparent: true, depthWrite: false });
       this.disposables.push(wire);
       const candidate = new THREE.LineSegments(wireGeo, wire); scene.add(candidate);
@@ -175,18 +198,19 @@ export class LivePasses {
       this.disposables.push(flash);
       const flashQuad = new THREE.Mesh(quad, flash); flashQuad.frustumCulled = false; flashQuad.renderOrder = 3; scene.add(flashQuad);
       const orbit = new THREE.Vector3();
-      const T = 5.2, MERGE = .72;
-      this.passes[4] = { scene, camera: camera(0, .45, 7.0), update: (time, elapsed, pointer) => {
-        incumbent.rotation.set(.18 - pointer.y * .06, time * .06 + pointer.x * .08, -.08);
+      const T = 5.2, MERGE = .72, MOON = .38;
+      this.passes[4] = { scene, camera: camera(0, .4, 6.2), update: (time, elapsed, pointer) => {
+        world.rotation.set(.18 - pointer.y * .06, pointer.x * .08, -.08);
+        incumbent.rotation.y = time * .05; shell.rotation.y = incumbent.rotation.y;
         const p = (elapsed % T) / T;
-        const a = time * .62;
-        orbit.set(Math.cos(a) * 1.75, Math.sin(a * .7) * .42, Math.sin(a) * .95);
+        const a = time * .6;
+        orbit.set(Math.cos(a) * 2.05, Math.sin(a * .7) * .5 + .15, Math.sin(a) * 1.1);
         const since = p >= MERGE ? (p - MERGE) * T : -1; // seconds since the merge, −1 before it
         const reborn = since >= .7;
         const approach = reborn ? 0 : easeInOut((p - .5) / (MERGE - .5));
         candidate.position.copy(orbit).multiplyScalar(1 - approach);
-        candidate.scale.setScalar(THREE.MathUtils.lerp(.7, 1.08, approach));
-        candidate.rotation.set(THREE.MathUtils.lerp(.1, .18, approach), THREE.MathUtils.lerp(time * .22, incumbent.rotation.y, approach), -.08 * approach);
+        candidate.scale.setScalar(THREE.MathUtils.lerp(MOON, 1.02, approach));
+        candidate.rotation.set(THREE.MathUtils.lerp(.3, .18, approach), THREE.MathUtils.lerp(time * .5, incumbent.rotation.y, approach), -.08 * approach);
         const u = wire.uniforms;
         u.uDissolve.value = since < 0 || reborn ? 0 : Math.min(1, since / .45);
         u.uOpacity.value = since < 0 || reborn ? .85 : .85 * (1 - clamp01(since / .4));
@@ -244,14 +268,14 @@ function seeded(seed: number) { let s = Math.floor(seed * 1e6) % 2147483647 || 1
 /** Log-normal latency in ms around 560; the 800 ms gate passes roughly three quarters. */
 const latency = (i: number) => { const h = (k: number) => { const x = Math.sin(k * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }; const u = Math.max(1e-4, h(i)), w = h(i * 1.7 + 9.2); const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(6.2831853 * w); return Math.round(Math.min(2400, Math.max(120, Math.exp(6.33 + z * .42)))); };
 
-function traceGeometry(count: number, rand: () => number) {
+function traceGeometry(count: number, rand: () => number, place?: (i: number, out: THREE.Vector3) => void) {
   const geometry = new THREE.BufferGeometry();
   const dirs = new Float32Array(count * 3), lands = new Float32Array(count * 3), tangents = new Float32Array(count * 3), seeds = new Float32Array(count), ms = new Float32Array(count), index = new Float32Array(count), born = new Float32Array(count);
-  const d = new THREE.Vector3(), t = new THREE.Vector3(), up = new THREE.Vector3();
+  const d = new THREE.Vector3(), land = new THREE.Vector3(), t = new THREE.Vector3(), up = new THREE.Vector3();
   for (let i = 0; i < count; i++) {
     const u = rand() * 2 - 1, a = rand() * Math.PI * 2, s = Math.sqrt(1 - u * u);
-    d.set(s * Math.cos(a), u * .55, s * Math.sin(a)).normalize().toArray(dirs, i * 3);
-    d.clone().multiplyScalar(1.6 + Math.pow(rand(), .6) * 1.1).toArray(lands, i * 3);
+    if (place) { place(i, land); d.copy(land).normalize(); } else { d.set(s * Math.cos(a), u * .55, s * Math.sin(a)).normalize(); land.copy(d).multiplyScalar(1.6 + Math.pow(rand(), .6) * 1.1); }
+    d.toArray(dirs, i * 3); land.toArray(lands, i * 3);
     t.crossVectors(d, Math.abs(u) < .9 ? up.set(0, 1, 0) : up.set(1, 0, 0)).normalize().toArray(tangents, i * 3);
     seeds[i] = rand(); ms[i] = latency(i); index[i] = i;
   }
