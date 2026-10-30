@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as shader from './shaders';
-import { planetGeometry, wireGeometry } from './geometry';
+import { fbm, planetGeometry, wireGeometry } from './geometry';
 
 export type Pass = 'wireframe' | 'observe' | 'evaluate' | 'refine' | 'beauty';
 /** A panel's inner viewport in CSS pixels, measured from the top-left of the page. */
@@ -62,7 +62,7 @@ export class MarsScene {
   private ratio = 1;
   private disposed = false;
   private readonly spawn = { uSpawn: { value: 0 } };
-  private readonly morph = { uMorph: { value: 0 }, uWordScale: { value: 1 }, tWord: { value: null as THREE.Texture | null } };
+  private readonly morph = { uMorph: { value: 0 }, uWordScale: { value: 1 }, uBox: { value: new THREE.Vector2(2, .5) }, tWord: { value: null as THREE.Texture | null } };
   private readonly bodyGeometries: THREE.BufferGeometry[] = [];
   readonly tier: 'full' | 'mid' | 'lite';
   private readonly dprCap: number;
@@ -80,7 +80,10 @@ export class MarsScene {
     const wire = wireGeometry(q.wire);
     const shell = body.clone().scale(1.03, 1.03, 1.03);
     this.bodyGeometries.push(body, shell);
-    for (const g of this.bodyGeometries) g.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
+    for (const g of this.bodyGeometries) {
+      g.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
+      g.setAttribute('aDelay', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
+    }
     const quad = new THREE.PlaneGeometry(2, 2);
     this.disposables.push(body, wire, shell, quad);
     const material = (fragmentShader: string, uniforms: Record<string, THREE.IUniform> = {}, extra: THREE.ShaderMaterialParameters = {}) => {
@@ -187,7 +190,7 @@ export class MarsScene {
     const spin = state.time * .04 + state.spin;
     const scale = 1 - state.settle * .14;
     for (const body of this.bodies) {
-      const settle = 1 - THREE.MathUtils.smoothstep(state.morph, 0, .6);
+      const settle = 1 - THREE.MathUtils.smoothstep(state.morph, 0, .28);
       body.rotation.set((.18 - state.pointer.y * .10) * settle, (spin + state.pointer.x * .12) * settle, -.08 * settle);
       body.position.set(state.pointer.x * .03, state.settle * .16 + state.pointer.y * .02, 0);
       body.scale.setScalar(scale);
@@ -217,7 +220,9 @@ export class MarsScene {
     if (state.beautyFade > .001) {
       this.setFade(state.beautyFade);
       this.dusk.visible = false;
+      this.spawn.uSpawn.value = (1 - state.beautyFade) * .9;
       r.render(this.passes.beauty, this.camera);
+      this.spawn.uSpawn.value = 0;
     }
     if (state.rimGhost > .001 && state.beautyFade < .001) { this.setFade(state.rimGhost); r.render(this.rimScene, this.camera); }
     if (state.wireOpacity > .001 && state.wireReveal > 0) r.render(this.passes.wireframe, this.camera);
@@ -276,14 +281,24 @@ export class MarsScene {
     this.assignTargets(context.getImageData(0, 0, canvas.width, canvas.height));
   }
 
-  /** Each body vertex is projected onto the wordmark plane and snapped to the nearest glyph cell, so triangles stay local and the letters read. */
+  /**
+   * Each body vertex is projected onto the wordmark's bounding box and pulled to the nearest point inside a glyph
+   * (its own projection when that lands on ink, otherwise the closest point of the nearest inked cell), so neighbouring
+   * vertices keep their order and the letters form without ridges. aDelay staggers the flow left to right.
+   */
   private assignTargets(image: ImageData) {
     const cols = 192, rows = 48;
     const halfWidth = WORD_HALF_WIDTH, halfHeight = halfWidth * image.height / image.width;
     const filled: number[] = [];
+    const ink = new Uint8Array(cols * rows);
+    let minC = cols, maxC = -1, minR = rows, maxR = -1;
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const x = Math.floor((c + .5) / cols * image.width), y = Math.floor((r + .5) / rows * image.height);
-      if (image.data[(y * image.width + x) * 4] > 128) filled.push(c, r);
+      if (image.data[(y * image.width + x) * 4] > 128) {
+        filled.push(c, r);
+        ink[r * cols + c] = 1;
+        minC = Math.min(minC, c); maxC = Math.max(maxC, c); minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+      }
     }
     if (!filled.length) return;
     const nearest = new Int32Array(cols * rows);
@@ -295,17 +310,28 @@ export class MarsScene {
       }
       nearest[r * cols + c] = best;
     }
+    const u0 = minC / cols, u1 = (maxC + 1) / cols, v0 = minR / rows, v1 = (maxR + 1) / rows;
+    this.morph.uBox.value.set((u1 - u0) * halfWidth, (v1 - v0) * halfHeight);
     for (const geometry of this.bodyGeometries) {
       const position = geometry.attributes.position as THREE.BufferAttribute;
       const target = geometry.attributes.aTarget as THREE.BufferAttribute;
+      const delay = geometry.attributes.aDelay as THREE.BufferAttribute;
       for (let i = 0; i < position.count; i++) {
-        const u = THREE.MathUtils.clamp(.5 + position.getX(i) * .5 * 1.05, 0, .999), v = THREE.MathUtils.clamp(.5 - position.getY(i) * .5 * 1.1, 0, .999);
-        const cell = nearest[Math.floor(v * rows) * cols + Math.floor(u * cols)];
-        const h = Math.sin(i * 12.9898) * 43758.5453, jitter = h - Math.floor(h);
-        const cx = (filled[cell] + .2 + jitter * .6) / cols, cy = (filled[cell + 1] + .2 + (jitter * 7 % 1) * .6) / rows;
-        target.setXYZ(i, (cx - .5) * 2 * halfWidth, (.5 - cy) * 2 * halfHeight, position.getZ(i) * .12);
+        const px = THREE.MathUtils.clamp(position.getX(i) * SPREAD, -1, 1) * .5 + .5, py = THREE.MathUtils.clamp(position.getY(i) / 1.07 * SPREAD, -1, 1) * .5 + .5;
+        const cc = THREE.MathUtils.clamp((u0 + px * (u1 - u0)) * cols, 0, cols - 1e-3), rr = THREE.MathUtils.clamp((v1 - py * (v1 - v0)) * rows, 0, rows - 1e-3);
+        const ci = Math.floor(cc), ri = Math.floor(rr);
+        let tx = cc, ty = rr;
+        if (!ink[ri * cols + ci]) {
+          const cell = nearest[ri * cols + ci];
+          tx = THREE.MathUtils.clamp(cc, filled[cell] + .05, filled[cell] + .95);
+          ty = THREE.MathUtils.clamp(rr, filled[cell + 1] + .05, filled[cell + 1] + .95);
+        }
+        const drift = fbm(position.getX(i) * 1.8 + 5.2, position.getY(i) * 1.8, position.getZ(i) * 1.8, 3) * .5 + .5;
+        target.setXYZ(i, (tx / cols - .5) * 2 * halfWidth, (.5 - ty / rows) * 2 * halfHeight, position.getZ(i) * .12);
+        delay.setX(i, THREE.MathUtils.clamp((tx / cols - u0) / (u1 - u0), 0, 1) * .82 + drift * .18);
       }
       target.needsUpdate = true;
+      delay.needsUpdate = true;
     }
   }
 
@@ -356,3 +382,5 @@ function detectTier(renderer: THREE.WebGLRenderer, mobile: boolean): keyof typeo
 
 /** Half-width of the wordmark plane in planet radii; the glyphs cover ~56% of it. Keep in sync with vWordUv in bodyVertex (7.2 = 2× this, 1.8 = 2× this × 512/2048). */
 const WORD_HALF_WIDTH = 3.6;
+/** The planet's projection is enlarged by this before it is clamped to the word box, so its triangles also reach the box corners (M's and S's outer strokes). */
+const SPREAD = 1.5;

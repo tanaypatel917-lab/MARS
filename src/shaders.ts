@@ -5,17 +5,35 @@ float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*vnoise(p);p=p*2.07+v
 float ridged(vec3 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*(1.-abs(vnoise(p)*2.-1.));p=p*2.1+vec3(3.3,1.1,7.7);a*=.5;}return v;}
 `;
 
-/** Body vertices can morph toward aTarget (a point inside the MARS wordmark) at the end of the scroll. */
+/**
+ * Body vertices morph toward aTarget (a point inside the MARS wordmark) at the end of the scroll, in two overlapping stages:
+ * the planet first stretches as a whole into the word's bounding box, then material flows into the glyphs left to right,
+ * each vertex on its own aDelay. vForm carries that local progress to the fragment shaders so the cut-out follows the flow.
+ */
 export const bodyVertex = /* glsl */`
-attribute vec3 aTarget;uniform float uMorph;uniform float uWordScale;
-varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;varying vec2 vUv;varying vec2 vWordUv;
+attribute vec3 aTarget;attribute float aDelay;uniform float uMorph;uniform float uWordScale;uniform vec2 uBox;
+varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;varying vec2 vUv;varying vec2 vWordUv;varying float vForm;
 void main(){
-  float k=smoothstep(0.,1.,uMorph);
-  float arc=sin(k*3.14159);
-  vec3 p=mix(position,aTarget*uWordScale,k)+normal*arc*.18*(.6+.4*sin(position.y*9.+position.x*7.));
-  vec3 n=normalize(mix(normal,vec3(0.,0.,1.),k*.85));
+  float a=smoothstep(.04,.5,uMorph);
+  vec3 s=mix(vec3(1.),vec3(uBox*uWordScale,.42)/vec3(1.,1.07,1.),a);
+  vec3 pe=position*s;vec3 ne=normalize(normal/s);
+  float f=smoothstep(0.,1.,(uMorph-.2-aDelay*.44)/.36);
+  float arc=sin(f*3.14159);
+  vec3 p=mix(pe,aTarget*uWordScale,f)+ne*arc*.14*(.6+.4*sin(position.y*9.+position.x*7.));
+  vec3 n=normalize(mix(ne,vec3(0.,0.,1.),f*.85));
+  vForm=f;
   vWordUv=vec2(.5+aTarget.x/7.2,.5+aTarget.y/1.8);
   vNormal=normalize(normalMatrix*n);vObject=position;vUv=uv;vec4 mv=modelViewMatrix*vec4(p,1.);vView=mv.xyz;gl_Position=projectionMatrix*mv;}
+`;
+
+/**
+ * Fragments of the planet that lie between the glyphs are dissolved in object-space grain as their region forms (vForm),
+ * so the cut-out happens where the material is moving rather than everywhere at once; at vForm 1 the cut is exact.
+ */
+const morphCut = /* glsl */`
+uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;varying float vForm;varying vec3 vObject;
+float mhash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
+#define MORPH_CUT if(uMorph>.001){float inside=texture2D(tWord,vWordUv).r;if(inside<.985){float k=smoothstep(.02,.88,vForm);float far=1.-texture2D(tWord,vWordUv,3.5).r;float g=mhash(floor(vObject*vec3(14.,28.,28.))+.5)*.5+mhash(vec3(gl_FragCoord.xy,3.))*.5;if(k>=1.||far*.55+g*.45>1.-k)discard;}}
 `;
 
 /** Thin sparse wireframe; back lines fade so the body still reads as a volume. */
@@ -96,11 +114,10 @@ void main(){float lon=(vUv.x-.5)*6.2831853;float lat=(vUv.y-.5)*3.1415926;vec3 s
 `;
 
 export const beautyFragment = /* glsl */`
-uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;uniform float uSpawn;
+${morphCut}
+uniform float uSpawn;
 #define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
-#define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
-
-uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
+uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
 void main(){MORPH_CUT SPAWN_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
@@ -122,13 +139,12 @@ void main(){MORPH_CUT SPAWN_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vV
 
 /** A slightly larger back-facing shell that gives the beauty pass its blue limb. */
 export const atmosphereFragment = /* glsl */`
-uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;
-#define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
-
+${morphCut}
 uniform float uFade;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
 void main(){MORPH_CUT vec3 n=normalize(vNormal);float inward=clamp(abs(dot(n,normalize(-vView)))/.24,0.,1.);float band=inward*inward*inward;
  vec3 c=mix(vec3(.2,.36,1.),vec3(.5,.3,.95),smoothstep(-.5,.7,n.y));float light=.12+.88*max(0.,dot(n,normalize(uKey)));
- gl_FragColor=vec4(c*band*light*uFade*.9,1.);}
+ float flight=1.-sin(vForm*3.14159)*.92;
+ gl_FragColor=vec4(c*band*light*uFade*.9*flight,1.);}
 `;
 
 export const fullscreenVertex = /* glsl */`varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}`;
@@ -155,8 +171,7 @@ void main(){vec2 d=vUv-uPointer;d.x*=uAspect;float r=length(d);
 `;
 
 export const maskFragment = /* glsl */`
-uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;
-#define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
+${morphCut}
 void main(){MORPH_CUT gl_FragColor=vec4(1.);}`;
 
 /** Hairline silhouette from the mask, revealed by an angular sweep during the intro. */
