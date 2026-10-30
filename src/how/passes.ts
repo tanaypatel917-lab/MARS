@@ -171,7 +171,7 @@ export class LivePasses {
       const wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: .85 }, uDissolve: { value: 0 } }, transparent: true, depthWrite: false });
       this.disposables.push(wire);
       const candidate = new THREE.LineSegments(wireGeo, wire); scene.add(candidate);
-      const flash = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform float uFlash;void main(){gl_FragColor=vec4(vec3(.93,.89,.82)*uFlash,1.);}', uniforms: { uFlash: { value: 0 } }, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending });
+      const flash = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform float uFlash;void main(){gl_FragColor=vec4(vec3(.93,.89,.82)*uFlash,uFlash);}', uniforms: { uFlash: { value: 0 } }, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending });
       this.disposables.push(flash);
       const flashQuad = new THREE.Mesh(quad, flash); flashQuad.frustumCulled = false; flashQuad.renderOrder = 3; scene.add(flashQuad);
       const orbit = new THREE.Vector3();
