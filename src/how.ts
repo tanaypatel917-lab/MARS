@@ -2,7 +2,7 @@ import './style.css';
 import gsap from 'gsap';
 import { CustomEase } from 'gsap/CustomEase';
 import Lenis from 'lenis';
-import { MarsScene, type FrameState, type PanelView, type Pass } from './scene';
+import { MarsScene, type FrameState } from './scene';
 
 gsap.registerPlugin(CustomEase);
 const osmo = CustomEase.create('osmo', '0.625, 0.05, 0, 1');
@@ -15,37 +15,31 @@ const select = <T extends Element = HTMLElement>(selector: string) => {
   return element;
 };
 
-/** One chapter per pass; window rects are in planet units like the home page. */
-interface Chapter { id: string; pass: Pass | null; label: string; caption: string; x: number; y: number; w: number; h: number; section: HTMLElement; panel: HTMLElement | null; open: number; shown: number }
-const spec: Omit<Chapter, 'section' | 'panel' | 'open' | 'shown'>[] = [
-  { id: 'loop', pass: null, label: 'iter 000', caption: 'the loop · observe, evaluate, refine, ascend', x: 0, y: 0, w: 0, h: 0 },
-  { id: 'observe', pass: 'observe', label: 'iter 001 · observe', caption: 'observe · capture real traces from your workflow, not benchmarks', x: -.95, y: -.6, w: 1.15, h: 1.05 },
-  { id: 'evaluate', pass: 'evaluate', label: 'iter 002 · evaluate', caption: 'evaluate · score every output against evals you write as code', x: -.4, y: -1.3, w: 1.5, h: .85 },
-  { id: 'refine', pass: 'refine', label: 'iter 003 · refine', caption: 'refine · fine-tune on what passed, on hardware you own', x: -1.3, y: .2, w: 1.25, h: .8 },
-  { id: 'ascend', pass: null, label: 'iter 004 · ascend', caption: 'ascend · ship the new weights only if they beat the old ones. then loop', x: 0, y: 0, w: 0, h: 0 },
+/** One chapter per move of the loop; each drives one stage of what happens to the planet. */
+interface Chapter { id: string; label: string; caption: string; section: HTMLElement; shown: number }
+const TRACES = 1000;
+const PASS_RATE = .72;
+const spec: Omit<Chapter, 'section' | 'shown'>[] = [
+  { id: 'loop', label: 'iter 000', caption: 'the loop · observe, evaluate, refine, ascend' },
+  { id: 'observe', label: 'traces 0000 / 1000', caption: 'observe · every point is one real run of your workflow' },
+  { id: 'evaluate', label: 'pass 0000 / 1000', caption: 'evaluate · scored by evals you write as code. fails are flung off' },
+  { id: 'refine', label: 'iter 003 · refine', caption: 'refine · the passes sink in and the surface grows under them' },
+  { id: 'ascend', label: 'iter 004 · ascend', caption: 'ascend · candidate against incumbent. the winner is the planet. then loop' },
 ];
-const host = select('.panels');
 const chapters: Chapter[] = spec.map(item => {
   const section = select(`#${item.id}`);
-  let panel: HTMLElement | null = null;
-  if (item.pass) {
-    panel = document.createElement('div');
-    panel.className = 'panel';
-    panel.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>${item.label}</span></div>`;
-    panel.style.display = 'none';
-    host.append(panel);
-  }
   section.querySelectorAll<HTMLElement>('h1, h2, p:not(.label)').forEach(block => {
     let i = 0;
     block.innerHTML = block.innerHTML.split(/(<[^>]+>)/).map(part => part.startsWith('<') ? part : part.split(' ').map(word => word ? `<span class="word"><span style="transition-delay:${Math.min(i++, 40) * 18}ms">${word}</span></span>` : '').join(' ')).join('');
   });
-  return { ...item, section, panel, open: -1, shown: 0 };
+  return { ...item, section, shown: 0 };
 });
 const canvas = select<HTMLCanvasElement>('#scene');
 const counter = select('#counter');
 const tag = select('.tag');
 const rail = select('.rail i');
 const cursor = select('#cursor');
+const evalLines = [...document.querySelectorAll<HTMLElement>('.eval .line')];
 const magnets = [...document.querySelectorAll<HTMLElement>('.magnet')];
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 const fine = matchMedia('(pointer: fine)');
@@ -56,6 +50,7 @@ let scene: MarsScene | undefined;
 let lenis: Lenis | undefined;
 let start = 0, lastTick = 0, spin = 0, spinVelocity = 0, progress = 0;
 let lastCounter = '', lastCaption = '';
+const pad = (value: number) => String(Math.round(value)).padStart(4, '0');
 
 function scramble(element: HTMLElement, text: string, duration = .5) {
   const from = element.textContent ?? '';
@@ -87,9 +82,7 @@ document.body.dataset.ui = 'on';
 /** The planet sits right of the text column on wide screens and above it on phones. */
 function planet() {
   const portrait = innerWidth / innerHeight < 1;
-  const cx = portrait ? .5 : .68, cy = portrait ? .3 : .5, scale = portrait ? .7 : .8;
-  const radius = (portrait ? .39 * innerWidth : .32 * innerHeight) * scale;
-  return { cx: cx * innerWidth, cy: cy * innerHeight, radius, scale, nx: cx, ny: cy };
+  return { nx: portrait ? .5 : .68, ny: portrait ? .3 : .5, scale: portrait ? .7 : .8 };
 }
 
 function chapterProgress(chapter: Chapter) {
@@ -97,28 +90,16 @@ function chapterProgress(chapter: Chapter) {
   return smooth((innerHeight * .78 - rect.top) / (innerHeight * .34));
 }
 
-function views(closing: number): PanelView[] {
-  const { cx, cy, radius } = planet();
-  const bar = Math.min(innerWidth, innerHeight) < 700 ? 20 : 24;
-  const out: PanelView[] = [];
-  chapters.forEach((chapter, i) => {
-    if (!chapter.panel || !chapter.pass) return;
-    const open = chapter.shown * (1 - closing);
-    const left = Math.round(cx + chapter.x * radius), top = Math.round(cy + chapter.y * radius);
-    const fullWidth = Math.round(chapter.w * radius);
-    const w = Math.round(fullWidth * smooth(open / .62)), h = Math.round(chapter.h * radius * smooth((open - .38) / .62));
-    if (open !== chapter.open) {
-      chapter.open = open;
-      const style = chapter.panel.style;
-      style.left = `${left}px`; style.top = `${top}px`; style.width = `${w}px`; style.height = `${h}px`;
-      style.display = w > 48 && h > bar + 10 ? '' : 'none';
-      style.zIndex = String(i);
-      (chapter.panel.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
-    }
-    const spawn = Math.max(1 - smooth((chapter.shown - .02) / .5), smooth((closing - .1) / .6));
-    if (h > bar + 10 && w > 48) out.push({ pass: chapter.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2, spawn });
-  });
-  return out;
+/** Live readouts while traces land and get scored; scrambled labels elsewhere. */
+function hud(stage: number, fall: number, score: number) {
+  const chapter = chapters[stage];
+  let label = chapter.label;
+  if (stage === 1) label = `traces ${pad(fall * TRACES)} / ${TRACES}`;
+  if (stage === 2) label = `pass ${pad(score * TRACES * PASS_RATE)} / ${pad(Math.max(1, score * TRACES))}`.replace('/ 0', '/ ');
+  if (stage === 1 || stage === 2) { counter.textContent = label; lastCounter = ''; }
+  else if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
+  if (chapter.caption !== lastCaption) { lastCaption = chapter.caption; scramble(tag, chapter.caption, .7); }
+  evalLines.forEach((line, i) => line.classList.toggle('on', score > (i + .5) / evalLines.length));
 }
 
 function draw(now: number) {
@@ -133,16 +114,13 @@ function draw(now: number) {
     if (chapter.shown > .12) chapter.section.classList.add('on');
     if (chapter.shown > .5) stage = i;
   });
-  const ascend = chapters[4].shown;
-  const label = chapters[stage].label;
-  if (label !== lastCounter) { lastCounter = label; scramble(counter, label); }
-  const caption = chapters[stage].caption;
-  if (caption !== lastCaption) { lastCaption = caption; scramble(tag, caption, .7); }
+  const [, observe, evaluate, refine, ascend] = chapters.map(c => c.shown);
+  hud(stage, observe, evaluate);
   rail.style.transform = `scaleY(${progress})`;
   pointer.x += (pointer.tx - pointer.x) * .06;
   pointer.y += (pointer.ty - pointer.y) * .06;
   spinVelocity *= .92;
-  spin += spinVelocity * dt;
+  spin += spinVelocity * dt + dt * observe * (1 - refine) * .35;
   if (fine.matches && pointer.seen) {
     pointer.px += (pointer.cx - pointer.px) * .22;
     pointer.py += (pointer.cy - pointer.py) * .22;
@@ -154,11 +132,12 @@ function draw(now: number) {
   const state: FrameState = {
     time: now,
     outlineReveal: ease(t, .1, 1.1),
-    outlineOpacity: 1 - ascend * .82,
+    outlineOpacity: (1 - refine * .6) * (1 - ascend * .5),
     wireReveal: 0,
     wireOpacity: 0,
-    beautyFade: ascend,
-    rimGhost: (1 - ascend) * ease(t, .6, 1.0) * .3,
+    beautyFade: ease(t, .5, 1.2) * (.3 + .7 * refine),
+    bodySpawn: 0,
+    rimGhost: 0,
     settle: 0,
     pointer: { x: pointer.x, y: pointer.y },
     morph: 0,
@@ -167,8 +146,11 @@ function draw(now: number) {
     light: Math.min(1, t / 1.5) * (pointer.seen ? 1 : .35),
     horizon: ascend * .8,
     word: 0,
-    panels: views(ascend),
+    panels: [],
     shift: { x: (nx - .5) * 2 * units * scene.camera.aspect, y: (.5 - ny) * 2 * units, scale },
+    growth: refine,
+    traces: { fall: observe, score: evaluate, sink: refine },
+    twin: ascend,
   };
   if (!document.hidden) scene.render(state);
 }
@@ -195,7 +177,7 @@ function visibility() {
   lastTick = 0;
   if (!document.hidden && !motion.matches && scene) gsap.ticker.add(tick);
 }
-function resize() { scene?.resize(); for (const chapter of chapters) chapter.open = -1; onScroll(); }
+function resize() { scene?.resize(); onScroll(); }
 function contextLost(event: Event) {
   event.preventDefault();
   gsap.ticker.remove(tick);
