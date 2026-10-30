@@ -39,7 +39,7 @@ void main(){
   float n=vnoise(vec3(vUv*7.,uTime*.25))*.5+vnoise(vec3(vUv*19.,-uTime*.4))*.5;
   float edge=uReveal*1.25-.12;
   if(n>edge)discard;
-  vec3 c=max(texture2D(tPass,vUv).rgb,uFog*.22);
+  vec3 c=max(texture2D(tPass,vUv).rgb,uFog*.12);
   float rim=smoothstep(edge-.09,edge,n);
   c=mix(c,vec3(1.,.9,.8),rim*.85);
   float vig=smoothstep(.9,.35,length(vUv-.5));
@@ -156,7 +156,8 @@ export class HowWorld {
   render(state: WorldState) {
     const yaw = state.position * YAW_PER_MOVE + state.tilt.x * .05;
     const height = .6 + state.tilt.y * .18 + Math.sin(state.position * Math.PI * .5) * .25;
-    this.camera.position.set(Math.sin(yaw) * RADIUS, height, Math.cos(yaw) * RADIUS);
+    const radius = RADIUS + state.explode * 1.1;
+    this.camera.position.set(Math.sin(yaw) * radius, height, Math.cos(yaw) * radius);
     this.camera.lookAt(LOOK);
     this.camera.rotateZ(-state.tilt.x * .004);
 
@@ -173,7 +174,9 @@ export class HowWorld {
 
     const core = state.core;
     (this.core.material as THREE.SpriteMaterial).opacity = core * (.55 + Math.sin(state.time * 1.7) * .06) * (1 - state.reveal * .45);
-    this.core.scale.setScalar(core * (this.mobile ? 1.4 : 1.9));
+    this.core.scale.setScalar(core * (this.mobile ? 1.6 : 2.2));
+    // the glow sits just behind the screen so the opaque plane occludes its centre and only a halo leaks around the edges
+    this.core.position.set(0, .15, 0).addScaledVector(u.uCam.value as THREE.Vector3, -.3);
 
     const visible = state.reveal > .001;
     this.screen.visible = visible;

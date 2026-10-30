@@ -296,7 +296,8 @@ vec3 steleDisplace(vec3 p,inout vec3 n){
  float bob=sin(uTime*(.6+aRand)+aRand*6.)*e*.08;
  float facing=smoothstep(.15,.85,dot(aFacetN,uCam));
  vec3 lat=aCentroid-uCam*dot(aCentroid,uCam);lat=length(lat)>.02?normalize(lat):vec3(1.,0.,0.);
- return aCentroid+q+aFacetN*(e*(.72+aRand*.55)+lift)+lat*facing*e*(1.05+aRand*.4)+vec3(0.,1.,0.)*bob+axis*bob*.35;}
+ vec3 push=aFacetN*e*(.62+aRand*.45)+lat*facing*e*(.8+aRand*.3);push.y*=.6;
+ return aCentroid+q+aFacetN*lift+push+vec3(0.,1.,0.)*bob+axis*bob*.35;}
 `;
 
 /** Splices the chunk into src/shaders.ts bodyVertex: the facet displacement runs before the wordmark morph, which is zero on /how. */
