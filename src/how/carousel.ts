@@ -62,6 +62,9 @@ export class Carousel {
   private wheelLockUntil = 0; private lastWheel = -Infinity; private wheelArmed = true;
   private drag: Drag | null = null;
   private touchActionTarget: HTMLElement | null = null; private touchActionWas = '';
+  /** Pointer parallax: the drum's vanishing point follows the pointer (target and smoothed). */
+  private readonly look = { x: 0, y: 0 }; private readonly eye = { x: 0, y: 0 };
+  private arriving = false; private arrivedTimer = 0;
   private dirty = true;
   private destroyed = false;
 
@@ -74,6 +77,7 @@ export class Carousel {
       title.className = 'title';
       const glyph = document.createElement('span');
       text.split('\n').forEach((line, j) => { if (j) glyph.append(document.createElement('br')); glyph.append(line); });
+      glyph.dataset.text = text;
       title.append(glyph);
       title.dataset.index = String(i);
       root.append(title);
@@ -104,6 +108,7 @@ export class Carousel {
     this.target = next;
     const distance = Math.abs(next - this.input);
     this.glide = { from: this.input, to: next, t: 0, duration: distance < .02 ? 0 : TURN + TURN_EXTRA * Math.max(0, distance - 1) };
+    this.arriving = changed && !this.options.reducedMotion;
     this.dirty = true;
     this.mark();
     if (changed) for (const cb of this.callbacks) cb(next);
@@ -132,6 +137,11 @@ export class Carousel {
       this.input = g.from + (g.to - g.from) * lusion(g.t);
       if (g.t >= 1) { this.input = g.to; this.glide = null; }
       this.dirty = true;
+    }
+    if (!this.options.reducedMotion) {
+      const k = 1 - Math.exp(-5 * dt);
+      const ex = this.eye.x + (this.look.x - this.eye.x) * k, ey = this.eye.y + (this.look.y - this.eye.y) * k;
+      if (Math.abs(ex - this.eye.x) > 1e-4 || Math.abs(ey - this.eye.y) > 1e-4) { this.eye.x = ex; this.eye.y = ey; this.dirty = true; }
     }
     const x = this.input;
     if (this.options.reducedMotion) {
@@ -215,6 +225,12 @@ export class Carousel {
     };
     on(target, 'pointerup', release);
     on(target, 'pointercancel', release);
+    on(target, 'pointermove', (event) => {
+      if (event.pointerType !== 'mouse' || this.drag?.active) return;
+      this.look.x = clamp(event.clientX / window.innerWidth - .5, -.5, .5);
+      this.look.y = clamp(event.clientY / window.innerHeight - .5, -.5, .5);
+    }, { passive: true });
+    on(target, 'pointerleave', () => { this.look.x = 0; this.look.y = 0; });
 
     on(target, 'keydown', (event) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
@@ -241,7 +257,9 @@ export class Carousel {
     for (const off of this.listeners.splice(0)) off();
     if (this.touchActionTarget) this.touchActionTarget.style.touchAction = this.touchActionWas;
     this.callbacks.length = 0;
+    clearTimeout(this.arrivedTimer);
     this.root.replaceChildren();
+    this.root.style.perspectiveOrigin = ''; this.root.style.transform = '';
     this.root.classList.remove('carousel', 'moving', 'dragging');
     delete this.root.dataset.enter; delete this.root.dataset.revealing;
   }
@@ -276,11 +294,20 @@ export class Carousel {
     const moving = !this.options.reducedMotion && (speed > .02 || !!this.drag?.active);
     this.root.classList.toggle('moving', moving);
     this.root.style.setProperty('--velocity', v.toFixed(4));
+    this.root.style.perspectiveOrigin = `${(50 + this.eye.x * 34).toFixed(2)}% ${(60 + this.eye.y * 20).toFixed(2)}%`;
+    this.root.style.transform = `translate3d(${(-this.eye.x * 1.4).toFixed(3)}vw,${(-this.eye.y * 6).toFixed(2)}px,0)`;
     this.titles.forEach((title, i) => {
       const d = i - pos, a = Math.abs(d);
       if (a > 2.6) { if (title.style.visibility !== 'hidden') title.style.visibility = 'hidden'; return; }
       if (title.style.visibility) title.style.visibility = '';
       const solid = smooth(.5, .12, a);
+      if (this.arriving && i === this.target && solid > .97) {
+        this.arriving = false;
+        clearTimeout(this.arrivedTimer);
+        for (const t of this.titles) t.classList.remove('arrived');
+        title.classList.add('arrived');
+        this.arrivedTimer = window.setTimeout(() => title.classList.remove('arrived'), 1300);
+      }
       const opacity = clamp(1 - .36 * a, 0, 1) * (1 - solid) + solid;
       title.style.transform = `translate3d(${(d * spacing).toFixed(3)}vw,0,${(-a * DEPTH).toFixed(1)}px) rotateY(${(d * TILT).toFixed(2)}deg)`;
       title.style.opacity = opacity.toFixed(3);

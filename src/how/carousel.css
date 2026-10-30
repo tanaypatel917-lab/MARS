@@ -22,6 +22,8 @@
 
   States: body[data-open=on] shows #detail, the arrows and #close, and fades header .links out.
   Input: wheel (one title per gesture), drag/swipe to scrub (mouse or touch), ← → Home End, click a side title.
+  Beyond the reference: the drum's vanishing point follows the pointer, a light pass crosses a title when it arrives,
+  and while open the centre title is cracked in two along a seam (the stone's fracture, carried into the type).
   Entrance: new Carousel(root, titles, { reducedMotion, enter: true }) then carousel.reveal() once the scene is ready.
   The arrows call carousel.prev()/next(); #close is wired by the page.
   Type: the static Switzer Extrabold (scripts/fonts.mjs fetches it) — the variable font's overlapping contours draw seams inside
@@ -30,7 +32,18 @@
 @font-face{font-family:Switzer;src:url('/fonts/Switzer-Extrabold.woff2') format('woff2');font-weight:800;font-display:swap}
 #carousel{position:fixed;z-index:5;left:0;right:0;bottom:4vh;height:1.72em;perspective:1200px;perspective-origin:50% 60%;transform-style:preserve-3d;pointer-events:none;font-size:clamp(56px,9.2vw,136px);contain:layout style}
 #carousel .title{position:absolute;left:0;right:0;bottom:0;margin:0;text-align:center;white-space:nowrap;transform-origin:50% 50%;will-change:transform,opacity;backface-visibility:hidden;font:800 1em/.86 Switzer,'Switzer Variable',sans-serif;text-transform:uppercase;letter-spacing:-.03em;color:rgba(236,230,220,var(--solid,0));-webkit-text-stroke:1px rgba(236,230,220,var(--stroke,.55));-webkit-font-smoothing:antialiased;user-select:none;pointer-events:none}
-#carousel .title span{display:inline-block;pointer-events:auto;cursor:pointer;will-change:transform;transition:transform .9s cubic-bezier(.35,0,0,1),opacity .7s cubic-bezier(.35,0,0,1)}
+#carousel .title span{position:relative;display:inline-block;pointer-events:auto;cursor:pointer;will-change:transform;transition:transform .9s cubic-bezier(.35,0,0,1),opacity .7s cubic-bezier(.35,0,0,1),color .4s}
+/* two solid copies of the centre title, cut along a crack seam: hidden until the stone opens, then they part (the stone's
+   fracture language from style.css's .link::before/::after, scaled up), and the lower half carries a rust glint along the seam */
+#carousel .title span::before,#carousel .title span::after{content:attr(data-text);position:absolute;inset:0;white-space:pre;color:var(--ink);-webkit-text-stroke:0 transparent;opacity:0;pointer-events:none;transition:transform .9s cubic-bezier(.35,0,0,1),opacity .35s}
+#carousel .title span::before{clip-path:polygon(0 0,100% 0,100% 38%,62% 46%,36% 58%,0 52%)}
+#carousel .title span::after{clip-path:polygon(0 52%,36% 58%,62% 46%,100% 38%,100% 100%,0 100%)}
+body[data-open=on] #carousel .title[data-active] span{color:transparent;-webkit-text-stroke-color:transparent}
+body[data-open=on] #carousel .title[data-active] span::before{opacity:1;transform:translate(-5px,-8px) rotate(-.7deg)}
+body[data-open=on] #carousel .title[data-active] span::after{opacity:1;transform:translate(5px,5px) rotate(.45deg);text-shadow:0 -2px 0 rgba(181,71,42,.75)}
+/* arrival: a warm pass crosses the title once it has settled in the centre (low Martian sun raking the stone face) */
+body:not([data-open=on]) #carousel .title.arrived span::before{opacity:1;clip-path:none;color:transparent;background:linear-gradient(104deg,transparent 38%,rgba(181,71,42,.42) 47%,rgba(255,238,218,.9) 52%,transparent 60%) no-repeat;background-size:240% 100%;-webkit-background-clip:text;background-clip:text;transition:none;animation:carousel-sweep 1.1s cubic-bezier(.35,0,0,1) both}
+@keyframes carousel-sweep{from{background-position:130% 0}to{background-position:-30% 0}}
 #carousel.dragging .title span{cursor:grabbing}
 #carousel .title:not([data-active]) span:hover{transform:translateY(-6px)}
 body[data-open=on] #carousel .title:not([data-active]) span{opacity:.3}
@@ -46,6 +59,9 @@ body[data-open=on] #carousel .title:not([data-active]) span{opacity:.3}
 /* bottom-left credits block */
 #detail{position:fixed;z-index:6;left:var(--edge);bottom:calc(4vh + 14px);max-width:34ch;margin:0;padding:0;opacity:0;transform:translateY(24px);pointer-events:none;transition:opacity .7s cubic-bezier(.35,0,0,1),transform .7s cubic-bezier(.35,0,0,1)}
 body[data-open=on] #detail{opacity:1;transform:none;pointer-events:auto;transition-delay:.15s}
+#detail>*{opacity:0;transform:translateY(14px);transition:opacity .6s cubic-bezier(.35,0,0,1),transform .6s cubic-bezier(.35,0,0,1)}
+body[data-open=on] #detail>*{opacity:1;transform:none}
+body[data-open=on] #detail>:nth-child(1){transition-delay:.2s}body[data-open=on] #detail>:nth-child(2){transition-delay:.28s}body[data-open=on] #detail>:nth-child(3){transition-delay:.36s}body[data-open=on] #detail>:nth-child(4){transition-delay:.44s}body[data-open=on] #detail>:nth-child(5){transition-delay:.52s}
 #detail .label{margin:0 0 12px;font:400 10px/1 'Commit Mono',monospace;letter-spacing:.06em;color:var(--muted)}
 #detail p{margin:0 0 6px;font:400 13px/1.5 'General Sans',sans-serif;color:#cfc9bf}
 #detail p:last-of-type{margin-bottom:14px}
