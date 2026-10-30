@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#050407" />
+    <meta name="description" content="How MARS works: observe real traces, evaluate them with evals you write as code, refine the open-weights model on your hardware, ascend only when the new weights win. Then loop." />
+    <link rel="icon" href="/favicon.svg" />
+    <meta property="og:title" content="MARS · how it works" />
+    <meta property="og:description" content="Observe · evaluate · refine · ascend. The recursive self-improvement loop, one pass at a time." />
+    <meta property="og:image" content="/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>MARS · how it works</title>
+  </head>
+  <body data-route="how">
+    <a class="skip-link" href="#main">Skip to the text</a>
+    <noscript><p class="noscript">MARS: observe, evaluate, refine, ascend. Enable JavaScript to see the planet.</p></noscript>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div id="fallback" hidden aria-hidden="true"><svg viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="43" ry="46" /></svg></div>
+    <div class="grain" aria-hidden="true"></div>
+    <div id="cursor" aria-hidden="true"></div>
+    <header class="ui corners">
+      <a class="brand magnet" href="/">MARS</a>
+      <nav class="links"><a class="link magnet" href="/how" aria-current="page">How</a><a class="link magnet" href="/#waitlist">Waitlist</a></nav>
+    </header>
+    <div class="panels" aria-hidden="true"></div>
+    <div class="ui hud">
+      <span id="counter" aria-live="polite">iter 000</span>
+      <span class="tag">the loop · observe, evaluate, refine, ascend</span>
+    </div>
+    <div class="rail ui" aria-hidden="true"><i></i><b></b><b></b><b></b><b></b><b></b></div>
+    <main class="how" id="main">
+      <section class="chapter" id="loop">
+        <p class="label">the loop</p>
+        <h1>One model. One workflow. Four moves, repeated until day 100 beats day 1.</h1>
+        <p>MARS takes an open-weights model and points it at the tasks your team actually runs. It <b>observes</b> what happens, <b>evaluates</b> every output against checks you write as code, <b>refines</b> the weights on what passed, and <b>ascends</b> only when the new weights beat the old ones. Then it goes again.</p>
+        <p>What it is not: a benchmark, a chat wrapper, or a place your data goes. Traces, evals and weights stay on hardware you own.</p>
+      </section>
+      <section class="chapter" id="observe">
+        <p class="label">iter 001 · observe</p>
+        <h2>Start from real traces, not a demo set.</h2>
+        <p>A trace is one run of your workflow: the input, every tool call, the model's output and what happened next. MARS captures them from where the work already happens, through a drop-in SDK or a local proxy, and keeps them on your machine.</p>
+        <p>No labelling sprint. The first hundred traces are the model's first look at the mission.</p>
+      </section>
+      <section class="chapter" id="evaluate">
+        <p class="label">iter 002 · evaluate</p>
+        <h2>Evals are code you write once and run on every output.</h2>
+        <p>Each trace is scored by small, deterministic checks: did the output have the right shape, did it match the reference, did it finish within budget. Pass or fail, per trace, every time.</p>
+        <pre class="eval" aria-label="Example eval"><i>// evals/triage.ts</i>
+export default eval('triage', ({ out, ref, ms }) =>
+  out.label === ref.label &amp;&amp;
+  out.owner in ref.team &amp;&amp;
+  ms &lt; 800,
+)</pre>
+        <p>The pass set is the only thing the next move is allowed to learn from.</p>
+      </section>
+      <section class="chapter" id="refine">
+        <p class="label">iter 003 · refine</p>
+        <h2>Fine-tune on what passed, on hardware you own.</h2>
+        <p>MARS trains a low-rank adapter on the pass set: hours on a single 24 GB GPU, not days on a cluster. Nothing the model gets wrong is rewarded; nothing leaves the box.</p>
+        <p>The result is a candidate, not a release. It still has to win.</p>
+      </section>
+      <section class="chapter" id="ascend">
+        <p class="label">iter 004 · ascend</p>
+        <h2>New weights ship only if they beat the old ones.</h2>
+        <p>Candidate and incumbent run the same held-out evals. If the candidate wins, it becomes the model; if not, it is discarded and the incumbent keeps flying. Either way the loop starts again with fresh traces.</p>
+        <p>Every mission starts with one task.</p>
+        <a class="cta magnet" href="/#waitlist">request access</a>
+      </section>
+    </main>
+    <script type="module" src="/src/how.ts"></script>
+  </body>
+</html>

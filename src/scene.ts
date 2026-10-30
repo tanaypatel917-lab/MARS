@@ -23,6 +23,8 @@ export interface FrameState {
   horizon: number;
   word: number;
   panels: PanelView[];
+  /** Optional planet offset in world units and scale multiplier, for pages that keep the planet off-centre. */
+  shift?: { x: number; y: number; scale: number };
 }
 
 const BACKGROUND = new THREE.Color(0x050407);
@@ -57,6 +59,7 @@ export class MarsScene {
   /** Key light in view space; it drifts slowly so the finished planet keeps living. */
   private readonly key = new THREE.Vector3(-.62, .5, .6);
   private ratio = 1;
+  private fraction = .64;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -144,6 +147,9 @@ export class MarsScene {
     return scene;
   }
 
+  /** World units spanned by half the viewport height at the planet's depth. */
+  get unitsPerHalfHeight() { return 1.07 / this.fraction; }
+
   resize() {
     const width = innerWidth, height = innerHeight;
     this.ratio = Math.min(devicePixelRatio || 1, 1.5, Math.sqrt(2_400_000 / (width * height)));
@@ -153,6 +159,7 @@ export class MarsScene {
     this.camera.updateProjectionMatrix();
     const portrait = width / height < 1;
     const fraction = portrait ? .78 * (width / height) : .64;
+    this.fraction = fraction;
     const halfAngle = Math.atan(Math.tan(THREE.MathUtils.degToRad(15)) * fraction);
     this.camera.position.set(0, 0, 1.07 / Math.sin(halfAngle));
     this.camera.lookAt(0, 0, 0);
@@ -168,10 +175,12 @@ export class MarsScene {
     const drift = state.time * .05;
     this.key.set(-.62 + Math.sin(drift) * .25, .5 + Math.cos(drift * .7) * .12, .6).normalize();
     const spin = state.time * .04 + state.spin;
-    const scale = 1 - state.settle * .14;
+    const scale = (1 - state.settle * .14) * (state.shift?.scale ?? 1);
+    const sx = state.shift?.x ?? 0, sy = state.shift?.y ?? 0;
+    this.outline.uniforms.uCenter.value.set(.5 + sx / (2 * this.unitsPerHalfHeight * this.camera.aspect), .5 + sy / (2 * this.unitsPerHalfHeight));
     for (const body of this.bodies) {
       body.rotation.set(.18 - state.pointer.y * .10, spin + state.pointer.x * .12, -.08);
-      body.position.set(state.pointer.x * .03, state.settle * .16 + state.pointer.y * .02, 0);
+      body.position.set(state.pointer.x * .03 + sx, state.settle * .16 + state.pointer.y * .02 + sy, 0);
       body.scale.setScalar(scale);
       body.updateMatrixWorld();
     }

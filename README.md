@@ -11,6 +11,8 @@ The install step downloads the two Fontshare fonts from their official source;
 see [FONTS.md](FONTS.md) for licenses and repository restrictions.
 
 Review states: `?frame=intro`, `rest`, `mid`, `full`, `close`, `beauty`.
+
+`/how` is the loop in depth: one chapter per pass beside the same planet (`src/how.ts`, `how.html`). Review states: `/how?frame=loop`, `observe`, `evaluate`, `refine`, `ascend`.
 Type specimen: `/specimen.html`. `shots/` is intentionally gitignored.
 
 `npm run build` and `npx tsc --noEmit` check the production bundle/types.
