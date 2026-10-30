@@ -232,3 +232,40 @@ void main(){if(vAlpha<.01)discard;float m=smoothstep(.5,.18,length(gl_PointCoord
  vec3 c=mix(vec3(.55,.30,.26),vec3(.93,.89,.82),vPass)+vHot*vec3(.35,.45,1.);
  gl_FragColor=vec4(c,m*vAlpha*(.7+vHot));}
 `;
+
+/** The colonised plain under the /how scenes: the planet's palette and key light on a displaced plane, pushed toward black with distance. */
+export const landVertex = /* glsl */`
+varying vec3 vNormal;varying vec3 vWorld;varying float vHeight;
+void main(){vNormal=normalize(normalMatrix*normal);vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vHeight=position.z;gl_Position=projectionMatrix*viewMatrix*w;}
+`;
+export const landFragment = /* glsl */`
+uniform vec3 uKey;uniform vec3 uCamera;uniform float uTime;uniform float uFade;varying vec3 vNormal;varying vec3 vWorld;varying float vHeight;
+float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
+void main(){vec3 n=normalize(vNormal);vec3 key=normalize(uKey);float diffuse=max(0.,dot(n,key));
+ float lowland=smoothstep(-.4,1.2,vHeight);vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05);vec3 albedo=mix(basalt,rust,lowland)*.32;
+ vec3 c=albedo*(diffuse*1.4*vec3(1.,.93,.84)+.02)+albedo*vec3(.07,.11,.30)*pow(max(0.,dot(n,normalize(vec3(.6,.5,.75)))),1.4)*.6;
+ float dist=length(vWorld-uCamera);float haze=1.-exp(-dist*dist*.00038);c=mix(c,vec3(.016,.013,.024),haze);
+ float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;c=c/(1.+c*.25)+grain;
+ gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))*uFade,1.);}
+`;
+/** Hairline colony outlines and warm window lights. */
+export const colonyFragment = /* glsl */`
+uniform vec3 uColor;uniform float uOpacity;uniform vec3 uCamera;varying vec3 vWorld;
+void main(){float dist=length(vWorld-uCamera);float fade=exp(-dist*dist*.00012);gl_FragColor=vec4(uColor,uOpacity*(.25+.75*fade));}
+`;
+export const colonyVertex = /* glsl */`
+varying vec3 vWorld;uniform float uSize;
+void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;gl_PointSize=uSize;}
+`;
+/** The evaluate sieve: a thin dark glass with fresnel edges and a faint blue/violet refraction tint, engraving driven by uEngrave. */
+export const glassFragment = /* glsl */`
+uniform float uTime;uniform float uEngrave;uniform sampler2D tText;uniform float uFade;varying vec3 vNormal;varying vec3 vView;varying vec2 vUv;
+void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);float fresnel=pow(1.-abs(dot(n,eye)),2.6);
+ vec3 c=vec3(.03,.03,.06)+vec3(.22,.38,1.)*fresnel*.35+vec3(.52,.30,.95)*fresnel*fresnel*.25;
+ float text=texture2D(tText,vUv).r*uEngrave;c+=vec3(.86,.80,.72)*text*.9;
+ gl_FragColor=vec4(c*uFade,(.35+fresnel*.5)*uFade+text*.6);}
+`;
+export const glassVertex = /* glsl */`
+varying vec3 vNormal;varying vec3 vView;varying vec2 vUv;
+void main(){vNormal=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vView=mv.xyz;vUv=uv;gl_Position=projectionMatrix*mv;}
+`;

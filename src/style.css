@@ -49,7 +49,6 @@ body[data-about=on] .panels,body[data-about=on] .hud,body[data-about=on] .rail{o
 body[data-route=how] .corners{background:linear-gradient(var(--bg) 50%,transparent)}
 body[data-route=how] #counter{min-width:0}
 @media(pointer:fine){body[data-route=how],body[data-route=how] a,body[data-route=how] button,body[data-route=how] input{cursor:none}}
-#blob{position:fixed;inset:0;width:100%;height:100%;z-index:9;pointer-events:none;mix-blend-mode:difference}
 .how{position:relative;z-index:4;padding:0 var(--edge);pointer-events:none}
 .stage{min-height:100vh;display:flex;align-items:center}
 .copy{max-width:36ch;pointer-events:auto}
@@ -87,3 +86,11 @@ body[data-route=how] .link:hover::before,body[data-route=how] .link:hover::after
 body[data-route=how] .link:hover::before,body[data-route=how] .link:focus-visible::before{transform:translate(-.5px,-1.1px) rotate(-1.2deg)}
 body[data-route=how] .link:hover::after,body[data-route=how] .link:focus-visible::after{transform:translate(.5px,1.1px) rotate(.8deg)}
 @media(max-width:700px){body[data-route=how] .hud{display:none}.stage{align-items:flex-end;padding:46vh 0 8vh}.stage:first-child{padding-top:54vh}.copy{max-width:none}.task{font-size:20px}.eval{font-size:10px}}
+/* /how v4: one continuous space, Guillaume window chrome anchored to the object under the pointer */
+body[data-route=how] .panels{position:fixed;inset:0;pointer-events:none;overflow:visible}
+.how-panel{left:0;top:0;width:236px;transform-origin:0 0;background:rgba(5,4,7,.55);backdrop-filter:blur(6px)}.how-panel .bar{background:transparent;border-bottom:1px solid var(--line)}
+.how-panel .pane{padding:10px 11px 12px;font:400 11.5px/1.5 var(--mono);color:var(--ink);letter-spacing:.01em}.how-panel .pane i{font-style:normal;color:var(--muted);display:block;margin-top:6px}
+.how-panel.crack{width:180px}
+.copy .reveal{min-height:1.5em;color:var(--ink);font-size:14px}.copy .reveal:empty{margin:0}
+body[data-route=how].over #cursor{background:var(--ink)}
+.stage .copy{opacity:.35;transform:translateX(-10px);transition:opacity .9s cubic-bezier(.35,0,0,1),transform .9s cubic-bezier(.35,0,0,1)}.stage.on .copy{opacity:1;transform:none}
