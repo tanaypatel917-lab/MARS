@@ -8,6 +8,7 @@ import { HowWorld, type Hit, type WorldState } from './how/world';
 import { Carousel } from './how/carousel';
 import { FOG } from './how/landscape';
 import type { PassIndex } from './how/passes';
+import { Ambient } from './audio';
 
 gsap.registerPlugin(CustomEase);
 const lusion = CustomEase.create('lusion', '0.35, 0, 0, 1');
@@ -56,6 +57,10 @@ const nextButton = select<HTMLButtonElement>('.arrow.next');
 const detail = select('#detail');
 const detailIndex = select('#detail-index'), detailMove = select('#detail-move'), detailBody = select('#detail-body'), detailMeta = select('#detail-meta');
 const body = document.body;
+const soundButton = select<HTMLButtonElement>('#sound');
+const wave = soundButton.querySelector<HTMLCanvasElement>('.wav')!.getContext('2d')!;
+const ambient = new Ambient();
+let gestured = false;
 const d = (seconds: number) => reduced ? 0 : seconds;
 
 let world: HowWorld | null = null;
@@ -67,8 +72,10 @@ body.dataset.ui = 'on';
 const carousel = new Carousel(select('#carousel'), MOVES.map(m => m.title), { reducedMotion: reduced });
 const state: WorldState = {
   time: 0, position: 0, pass: 0, blend: 1, pointer: { x: 0, y: 0 }, tilt: { x: 0, y: 0 },
-  facet: -1, lift: 0, explode: 0, reveal: 0, core: 0, fade: 1,
+  facet: -1, lift: 0, explode: 0, reveal: 0, core: 0, fade: 1, spawn: reduced ? 0 : 1,
 };
+// the stone forms out of the dust on arrival (home's spawn cut), never pops in
+gsap.to(state, { spawn: 0, duration: d(2.4), ease: 'power2.inOut', delay: d(.3) });
 const tiltX = new Dynamics(0, 1.2, .75), tiltY = new Dynamics(0, 1.2, .75);
 const fog = new THREE.Color(FOG[0]);
 if (world) world.landscape.fog.copy(fog);
@@ -107,6 +114,7 @@ carousel.onChange(onMove);
 const setOpen = (next: boolean) => {
   if (next === open) return;
   open = next;
+  if (gestured && !reduced) ambient.crack(open);
   body.dataset.open = open ? 'on' : 'off';
   body.classList.toggle('open', open);
   closeButton.hidden = !open; prevButton.hidden = !open; nextButton.hidden = !open;
@@ -132,6 +140,21 @@ const setOpen = (next: boolean) => {
   }
 };
 closeButton.addEventListener('click', () => setOpen(false));
+addEventListener('pointerdown', () => { gestured = true; }, { once: true, capture: true });
+addEventListener('keydown', () => { gestured = true; }, { once: true, capture: true });
+soundButton.addEventListener('click', async () => {
+  const on = soundButton.getAttribute('aria-pressed') === 'true';
+  if (on) ambient.stop(); else await ambient.start();
+  soundButton.setAttribute('aria-pressed', String(!on));
+  soundButton.setAttribute('aria-label', on ? 'Sound off' : 'Sound on');
+});
+/** Lusion-style live waveform in the sound button: the drone's own samples, a flat line when muted. */
+const drawWave = () => {
+  const w = wave.canvas.width, h = wave.canvas.height, samples = ambient.waveform();
+  wave.clearRect(0, 0, w, h); wave.lineWidth = 1.2; wave.strokeStyle = getComputedStyle(soundButton).color; wave.beginPath();
+  for (let i = 0; i < w; i++) { const v = samples ? samples[Math.floor(i / w * samples.length)] : 0; const y = h / 2 + v * h * .9; i ? wave.lineTo(i, y) : wave.moveTo(i, y); }
+  wave.stroke();
+};
 prevButton.addEventListener('click', () => carousel.prev());
 nextButton.addEventListener('click', () => carousel.next());
 
@@ -187,6 +210,7 @@ const tick = (now: number) => {
   cursorPos.x += (pointer.x - cursorPos.x) * Math.min(1, dt * 22); cursorPos.y += (pointer.y - cursorPos.y) * Math.min(1, dt * 22);
   cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
   if (world) world.render(state);
+  if ((now | 0) % 2 === 0) drawWave();
   requestAnimationFrame(tick);
 };
 requestAnimationFrame(tick);

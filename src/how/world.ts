@@ -21,6 +21,8 @@ export interface WorldState {
   facet: number; lift: number;
   explode: number; reveal: number; core: number;
   fade: number;
+  /** 1 = the stone has not formed yet (noise-discard), 0 = whole. */
+  spawn: number;
 }
 export interface Hit { facet: number; point: THREE.Vector3; screen: boolean; distance: number }
 
@@ -152,11 +154,11 @@ export class HowWorld {
     this.camera.rotateZ(-state.tilt.x * .004);
 
     const u = this.steleMaterial.uniforms;
-    u.uTime.value = state.time; u.uFade.value = state.fade;
+    u.uTime.value = state.time; u.uFade.value = state.fade; u.uSpawn.value = state.spawn;
     u.uFacet.value = state.facet; u.uLift.value = state.lift; u.uExplode.value = state.explode;
     const s = this.seamMaterial.uniforms;
     s.uTime.value = state.time; s.uFacet.value = state.facet; s.uLift.value = state.lift; s.uExplode.value = state.explode;
-    s.uSeam.value = .06 + state.explode * .18;
+    s.uSeam.value = (.06 + state.explode * .18) * (1 - state.spawn);
     this.stele.rotation.y = Math.sin(state.time * .05) * .04;
     this.seams.rotation.copy(this.stele.rotation);
 
