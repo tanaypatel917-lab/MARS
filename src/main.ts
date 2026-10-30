@@ -107,6 +107,8 @@ try {
   document.body.dataset.renderer = 'fallback';
 }
 
+const SPAWN_ALLOWED = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 function panelViews(): PanelView[] {
   const radius = planetRadius(), cx = innerWidth / 2, cy = innerHeight / 2;
   const bar = Math.min(innerWidth, innerHeight) < 700 ? 20 : 24;
@@ -131,7 +133,8 @@ function panelViews(): PanelView[] {
       style.zIndex = String(i);
       (panel.element.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
     }
-    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2 });
+    const spawn = SPAWN_ALLOWED ? Math.max(1 - smooth((opening - .02) / .5), smooth((closing - .1) / .6)) : 0;
+    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2, spawn });
   });
   return views;
 }
@@ -181,6 +184,7 @@ function draw(now: number) {
     horizon: ease(progress, .84, .14),
     word: ease(progress, .86, .08) * (1 - ease(progress, .9, .1)),
     morph: ease(progress, .9, .1),
+    split: spinVelocity * .0022,
     panels: views,
   };
   if (!document.hidden) scene?.render(state);
@@ -320,6 +324,7 @@ await document.fonts.ready;
 await document.fonts.load('500 380px Switzer').catch(() => undefined);
 scene?.setWordmark('MARS', "500 380px Switzer, 'General Sans', sans-serif");
 scene?.warm();
+if (matchMedia('(hover: hover)').matches) for (const el of document.querySelectorAll<HTMLElement>('.brand, .links .link')) roll(el);
 if (scene) document.body.dataset.tier = scene.tier;
 const frames: Record<string, number> = { rest: 0, mid: .48, full: .72, close: .845, beauty: .97 };
 if (frame === 'intro' && !motion.matches) { introTime = 1.9; introFrozen = true; }
@@ -327,3 +332,23 @@ else if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
 else if (location.hash === '#waitlist') jump(1);
 if (document.body.dataset.intro === 'running' && !introFrozen) setTimeout(() => { introTime = INTRO; finishIntro(); }, INTRO * 1000 + 600);
 document.body.dataset.ready = 'true';
+
+/** Guillaume-style rolling glyphs: each character is doubled in a 1em clip and the stack slides up on hover. */
+function roll(el: HTMLElement) {
+  const text = el.textContent?.trim() ?? '';
+  if (!text) return;
+  el.setAttribute('aria-label', text);
+  el.textContent = '';
+  const wrap = document.createElement('span');
+  wrap.className = 'roll';
+  wrap.setAttribute('aria-hidden', 'true');
+  [...text].forEach((ch, i) => {
+    const g = document.createElement('span');
+    g.className = 'g';
+    g.style.setProperty('--i', String(i));
+    const glyph = ch === ' ' ? '\u00a0' : ch;
+    g.innerHTML = `<i>${glyph}</i><i>${glyph}</i>`;
+    wrap.append(g);
+  });
+  el.append(wrap);
+}
