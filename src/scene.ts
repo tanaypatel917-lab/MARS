@@ -4,7 +4,7 @@ import { planetGeometry, wireGeometry } from './geometry';
 
 export type Pass = 'wireframe' | 'observe' | 'evaluate' | 'refine' | 'beauty';
 /** A panel's inner viewport in CSS pixels, measured from the top-left of the page. */
-export interface PanelView { pass: Pass; x: number; y: number; w: number; h: number }
+export interface PanelView { pass: Pass; x: number; y: number; w: number; h: number; spawn: number }
 export interface FrameState {
   time: number;
   outlineReveal: number;
@@ -19,6 +19,8 @@ export interface FrameState {
   /** Pointer in -1..1 (x right, y up) and extra spin from scroll velocity. */
   pointer: { x: number; y: number };
   morph: number;
+  /** Horizontal RGB split of the hairline in viewport fraction; follows scroll velocity (madrepunk). */
+  split: number;
   spin: number;
   light: number;
   horizon: number;
@@ -59,6 +61,7 @@ export class MarsScene {
   private readonly key = new THREE.Vector3(-.62, .5, .6);
   private ratio = 1;
   private disposed = false;
+  private readonly spawn = { uSpawn: { value: 0 } };
   private readonly morph = { uMorph: { value: 0 }, uWordScale: { value: 1 }, tWord: { value: null as THREE.Texture | null } };
   private readonly bodyGeometries: THREE.BufferGeometry[] = [];
   readonly tier: 'full' | 'mid' | 'lite';
@@ -81,7 +84,7 @@ export class MarsScene {
     const quad = new THREE.PlaneGeometry(2, 2);
     this.disposables.push(body, wire, shell, quad);
     const material = (fragmentShader: string, uniforms: Record<string, THREE.IUniform> = {}, extra: THREE.ShaderMaterialParameters = {}) => {
-      const m = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader, uniforms: { ...uniforms, ...this.morph }, ...extra });
+      const m = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader, uniforms: { ...uniforms, ...this.morph, ...this.spawn }, ...extra });
       this.disposables.push(m);
       return m;
     };
@@ -127,7 +130,7 @@ export class MarsScene {
     this.passes = {
       wireframe: wireScene,
       observe: this.single(body, material(shader.uvFragment), mesh),
-      evaluate: this.single(body, material(shader.normalFragment), mesh),
+      evaluate: this.single(body, material(shader.normalFragment, { tTerrain: { value: bake.texture } }), mesh),
       refine: refineScene,
       beauty: beautyScene,
     };
@@ -138,7 +141,7 @@ export class MarsScene {
     this.disposables.push(this.mask);
     this.outline = new THREE.ShaderMaterial({
       vertexShader: shader.fullscreenVertex, fragmentShader: shader.outlineFragment, transparent: true, depthTest: false, depthWrite: false,
-      uniforms: { tMask: { value: this.mask.texture }, uTexel: { value: new THREE.Vector2() }, uCenter: { value: new THREE.Vector2(.5, .5) }, uReveal: { value: 1 }, uOpacity: { value: 1 } },
+      uniforms: { tMask: { value: this.mask.texture }, uTexel: { value: new THREE.Vector2() }, uCenter: { value: new THREE.Vector2(.5, .5) }, uReveal: { value: 1 }, uOpacity: { value: 1 }, uSplit: { value: 0 } },
     });
     this.disposables.push(this.outline);
     mesh(quad, this.outline, this.outlineScene, false).frustumCulled = false;
@@ -227,6 +230,7 @@ export class MarsScene {
       this.scissor.set(Math.round(panel.x * this.ratio), Math.round((height - panel.y - panel.h) * this.ratio), Math.round(panel.w * this.ratio), Math.round(panel.h * this.ratio));
       r.setClearColor(PASS_BACKGROUND[panel.pass], 1);
       r.clear(true, true, false);
+      this.spawn.uSpawn.value = panel.spawn;
       if (panel.pass === 'beauty') {
         this.setFade(1);
         this.dusk.visible = true;
@@ -241,7 +245,9 @@ export class MarsScene {
       }
       r.render(this.passes[panel.pass], this.camera);
     }
+    this.spawn.uSpawn.value = 0;
     r.setScissorTest(false);
+    this.outline.uniforms.uSplit.value = state.split;
     this.outline.uniforms.uReveal.value = state.outlineReveal;
     this.outline.uniforms.uOpacity.value = state.outlineOpacity;
     if (state.outlineOpacity > .001 && state.outlineReveal > 0) r.render(this.outlineScene, this.camera);

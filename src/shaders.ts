@@ -30,8 +30,9 @@ void main(){if(vShow<.5)discard;float a=mix(.16,1.,smoothstep(-.25,.45,vFacing))
 
 /** "observe": a lit checker, the uv-debug look. */
 export const uvFragment = /* glsl */`
-varying vec3 vNormal;varying vec3 vView;varying vec2 vUv;
-void main(){vec2 g=floor(vec2(vUv.x*28.,vUv.y*14.));float checker=mod(g.x+g.y,2.);vec3 n=normalize(vNormal);
+varying vec3 vNormal;varying vec3 vView;varying vec2 vUv;varying vec3 vObject;uniform float uSpawn;
+#define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
+void main(){SPAWN_CUT vec2 g=floor(vec2(vUv.x*28.,vUv.y*14.));float checker=mod(g.x+g.y,2.);vec3 n=normalize(vNormal);
  float light=.35+.65*max(0.,dot(n,normalize(vec3(-.55,.6,.75))));float rim=pow(1.-max(0.,dot(n,normalize(-vView))),3.);
  vec3 c=mix(vec3(.13,.13,.14),vec3(.90,.86,.78),checker)*light;c=mix(c,vec3(.05),rim*.6);
  gl_FragColor=vec4(pow(c,vec3(1./2.2)),1.);}
@@ -39,8 +40,11 @@ void main(){vec2 g=floor(vec2(vUv.x*28.,vUv.y*14.));float checker=mod(g.x+g.y,2.
 
 /** "evaluate": pastel normals, cooled toward blue and violet. */
 export const normalFragment = /* glsl */`
-varying vec3 vNormal;
-void main(){vec3 n=normalize(vNormal);vec3 c=n*.5+.5;c=mix(c,vec3(.55,.62,1.),.18);c=mix(c,vec3(.78,.55,1.),smoothstep(-.3,.9,n.x)*.25);c=pow(c,vec3(.85));gl_FragColor=vec4(c,1.);}
+varying vec3 vNormal;varying vec3 vObject;uniform float uSpawn;uniform sampler2D tTerrain;
+#define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
+void main(){SPAWN_CUT vec3 n=normalize(vNormal);vec3 c=n*.5+.5;c=mix(c,vec3(.55,.62,1.),.18);c=mix(c,vec3(.78,.55,1.),smoothstep(-.3,.9,n.x)*.25); vec3 sdir=normalize(vObject);vec2 huv=vec2(atan(sdir.z,sdir.x)/6.2831853+.5,asin(clamp(sdir.y,-1.,1.))/3.1415926+.5);float hgt=texture2D(tTerrain,huv).r;
+ float iso=fract(hgt*14.);float fw=fwidth(iso)*1.5;float line=1.-smoothstep(0.,fw,min(iso,1.-iso));float heavy=step(.5,fract(floor(hgt*14.)/5.+.1));
+ c=mix(c,vec3(.95,.90,.82),line*(.35+heavy*.3));c=pow(c,vec3(.85));gl_FragColor=vec4(c,1.);}
 `;
 
 /** Backdrop of the "refine" window: violet glass with slow light bands; also sampled (refracted) by the body. */
@@ -57,10 +61,12 @@ void main(){vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;vec3 c=refineBg(p,uTime);
 
 /** "refine": the body as thick violet glass refracting its backdrop, with chromatic split and internal veins (Lusion's analytic-refraction trick). */
 export const transmissionFragment = /* glsl */`
+uniform float uSpawn;
+#define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
 uniform float uTime;uniform vec4 uRect;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
 ${noise}
 ${refineBackdrop}
-void main(){vec3 n=normalize(vNormal);float facing=max(0.,dot(n,normalize(-vView)));vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;
+void main(){SPAWN_CUT vec3 n=normalize(vNormal);float facing=max(0.,dot(n,normalize(-vView)));vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;
  float bend=.12*(1.-facing*.6);vec2 offset=-n.xy*bend;
  vec3 c=vec3(refineBg(p+offset*.92,uTime).r,refineBg(p+offset,uTime).g,refineBg(p+offset*1.1,uTime).b);
  float density=fbm(vObject*2.4+vec3(0.,uTime*.05,uTime*.03));float veins=ridged(vObject*5.+density*1.5);
@@ -90,13 +96,14 @@ void main(){float lon=(vUv.x-.5)*6.2831853;float lat=(vUv.y-.5)*3.1415926;vec3 s
 `;
 
 export const beautyFragment = /* glsl */`
-uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;
+uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;uniform float uSpawn;
+#define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
 #define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
 
 uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
-void main(){MORPH_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
+void main(){MORPH_CUT SPAWN_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
  vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
  float e=.004;vec3 m0=texture2D(tTerrain,toUv(s)).rgb;float h0=m0.r;float hx=texture2D(tTerrain,toUv(normalize(s+t*e))).r;float hy=texture2D(tTerrain,toUv(normalize(s+b*e))).r;
  vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.);
@@ -154,11 +161,13 @@ void main(){MORPH_CUT gl_FragColor=vec4(1.);}`;
 
 /** Hairline silhouette from the mask, revealed by an angular sweep during the intro. */
 export const outlineFragment = /* glsl */`
-uniform sampler2D tMask;uniform vec2 uTexel;uniform vec2 uCenter;uniform float uReveal;uniform float uOpacity;varying vec2 vUv;
-void main(){float c=texture2D(tMask,vUv).r;float mx=c,mn=c;
- for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){float s=texture2D(tMask,vUv+vec2(i,j)*uTexel).r;mx=max(mx,s);mn=min(mn,s);}
- float edge=mx-mn;if(edge<.02)discard;
+uniform sampler2D tMask;uniform vec2 uTexel;uniform vec2 uCenter;uniform float uReveal;uniform float uOpacity;uniform float uSplit;varying vec2 vUv;
+float edgeAt(vec2 uv){float c=texture2D(tMask,uv).r;float mx=c,mn=c;
+ for(int i=-1;i<=1;i++)for(int j=-1;j<=1;j++){float s=texture2D(tMask,uv+vec2(i,j)*uTexel).r;mx=max(mx,s);mn=min(mn,s);}
+ return mx-mn;}
+void main(){float eG=edgeAt(vUv);float eR=abs(uSplit)>1e-5?edgeAt(vUv+vec2(uSplit,0.)):eG;float eB=abs(uSplit)>1e-5?edgeAt(vUv-vec2(uSplit,0.)):eG;
+ float edge=max(eG,max(eR,eB));if(edge<.02)discard;vec3 split=vec3(eR,eG,eB)/edge;
  vec2 d=vUv-uCenter;float angle=fract(atan(d.x,d.y)/6.2831853+1.);float visible=step(angle,uReveal);
  float head=smoothstep(.06,0.,uReveal-angle)*step(uReveal,.999);
- vec3 col=mix(vec3(.90,.84,.75),vec3(1.),head);gl_FragColor=vec4(col,edge*uOpacity*visible*(.85+head*.6));}
+ vec3 col=mix(vec3(.90,.84,.75),vec3(1.),head)*split;gl_FragColor=vec4(col,edge*uOpacity*visible*(.85+head*.6));}
 `;
