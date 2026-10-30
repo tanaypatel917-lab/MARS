@@ -7,7 +7,7 @@
 export interface CarouselOptions { reducedMotion: boolean }
 
 const F = 1.5, ZETA = .8;
-const WHEEL_LOCK = 650, WHEEL_GAP = 90, WHEEL_MIN = 4;
+const WHEEL_LOCK = 650, WHEEL_GAP = 180, WHEEL_MIN = 4;
 const SWIPE = 40;
 const TWEEN = 1100;
 const SPACING = 56, SPACING_MOBILE = 70;

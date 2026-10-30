@@ -197,7 +197,7 @@ export class LivePasses {
       } };
     }
 
-    this.fadeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform sampler2D tPrev;uniform float uBlend;varying vec2 vUv;void main(){gl_FragColor=vec4(texture2D(tPrev,vUv).rgb,1.-uBlend);}', uniforms: { tPrev: { value: this.prev.texture }, uBlend: { value: 1 } }, transparent: true, depthTest: false, depthWrite: false });
+    this.fadeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform sampler2D tPrev;uniform float uBlend;varying vec2 vUv;void main(){vec4 p=texture2D(tPrev,vUv);gl_FragColor=vec4(p.rgb,p.a*(1.-uBlend));}', uniforms: { tPrev: { value: this.prev.texture }, uBlend: { value: 1 } }, transparent: true, depthTest: false, depthWrite: false });
     const fadeQuad = new THREE.Mesh(quad, this.fadeMaterial); fadeQuad.frustumCulled = false; this.fadeScene.add(fadeQuad);
     this.disposables.push(this.fadeMaterial);
   }
@@ -218,7 +218,7 @@ export class LivePasses {
 
     const savedTarget = r.getRenderTarget(), savedAutoClear = r.autoClear, savedScissor = r.getScissorTest(), savedAlpha = r.getClearAlpha();
     r.getClearColor(this.savedClear);
-    r.setScissorTest(false); r.setClearColor(0x000000, 1); r.autoClear = true;
+    r.setScissorTest(false); r.setClearColor(0x000000, 0); r.autoClear = true;
     const fading = blend < 1 && this.previous !== null && this.previous !== index;
     if (fading) this.draw(this.previous!, time, this.prev);
     this.draw(index, time, this.out);
