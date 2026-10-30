@@ -21,6 +21,8 @@
     <button class="arrow next" type="button" aria-label="Next move"></button>
 
   States: body[data-open=on] shows #detail, the arrows and #close, and fades header .links out.
+  Input: wheel (one title per gesture), drag/swipe to scrub (mouse or touch), ← → Home End, click a side title.
+  Entrance: new Carousel(root, titles, { reducedMotion, enter: true }) then carousel.reveal() once the scene is ready.
   The arrows call carousel.prev()/next(); #close is wired by the page.
   Type: the static Switzer Extrabold (scripts/fonts.mjs fetches it) — the variable font's overlapping contours draw seams inside
   stroked glyphs, the static cut outlines cleanly.
@@ -29,7 +31,12 @@
 #carousel{position:fixed;z-index:5;left:0;right:0;bottom:4vh;height:1.72em;perspective:1200px;perspective-origin:50% 60%;transform-style:preserve-3d;pointer-events:none;font-size:clamp(56px,9.2vw,136px);contain:layout style}
 #carousel .title{position:absolute;left:0;right:0;bottom:0;margin:0;text-align:center;white-space:nowrap;transform-origin:50% 50%;will-change:transform,opacity;backface-visibility:hidden;font:800 1em/.86 Switzer,'Switzer Variable',sans-serif;text-transform:uppercase;letter-spacing:-.03em;color:rgba(236,230,220,var(--solid,0));-webkit-text-stroke:1px rgba(236,230,220,var(--stroke,.55));-webkit-font-smoothing:antialiased;user-select:none;pointer-events:none}
 #carousel .title span{display:inline-block;pointer-events:auto;cursor:pointer;will-change:transform;transition:transform .9s cubic-bezier(.35,0,0,1),opacity .7s cubic-bezier(.35,0,0,1)}
+#carousel.dragging .title span{cursor:grabbing}
+#carousel .title:not([data-active]) span:hover{transform:translateY(-6px)}
 body[data-open=on] #carousel .title:not([data-active]) span{opacity:.3}
+/* entrance: titles rise from below the fold, the centre first, each neighbour 90 ms later */
+#carousel[data-enter] .title span{transform:translateY(118%);opacity:0;transition:none}
+#carousel[data-revealing] .title span{transition-duration:1.2s,.7s;transition-delay:calc(var(--k,0) * 90ms),0s}
 #carousel.moving .title span{transition:none}
 #carousel .title[data-active] span{cursor:default}
 #carousel .title:not([data-active]) span:hover{-webkit-text-stroke-color:rgba(236,230,220,.9)}

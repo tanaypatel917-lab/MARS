@@ -1,15 +1,23 @@
 /**
  * The bottom display-type carousel (Guillaume's home): one giant uppercase title per move, the centre one solid ivory, the
  * neighbours outlined and curved away as if printed on a drum. `position` is the smoothed fractional index the lead feeds to
- * the camera/fog; `update(dt)` advances it (Lusion's SecondOrderDynamics, or an exact Lusion-eased tween under reduced motion)
- * and writes the DOM transforms. Input (wheel / swipe / keys / side-title click) is attached with `bind`.
+ * the camera/fog; `update(dt)` advances it and writes the DOM transforms.
+ *
+ * Motion: a step glides the spring's input along cubic-bezier(.35,0,0,1) for ~1.1 s (the heavy Guillaume turn) and Lusion's
+ * SecondOrderDynamics (f 1.5, ζ .8) follow it, so the titles settle with a hint of overshoot. Dragging scrubs the input
+ * directly (mouse or touch) and snaps to the nearest title on release, with a fling. Under reduced motion the position is the
+ * exact tween, no spring, no lift/skew.
  */
-export interface CarouselOptions { reducedMotion: boolean }
+export interface CarouselOptions {
+  reducedMotion: boolean;
+  /** Start with the titles below the fold; `reveal()` brings them up (staggered from the centre). */
+  enter?: boolean;
+}
 
 const F = 1.5, ZETA = .8;
+const TURN = 1.1, TURN_EXTRA = .18;
 const WHEEL_LOCK = 650, WHEEL_GAP = 90, WHEEL_MIN = 4;
-const SWIPE = 40;
-const TWEEN = 1100;
+const DRAG_START = 8, SWIPE = 40, FLING = .55, OVERDRAG = .22;
 const SPACING = 56, SPACING_MOBILE = 70;
 const DEPTH = 260, TILT = -32;
 const RUBBER = .9;
@@ -36,6 +44,9 @@ const lusion = (() => {
   };
 })();
 
+interface Glide { from: number; to: number; t: number; duration: number }
+interface Drag { id: number; x0: number; y0: number; pos0: number; x: number; t: number; vx: number; active: boolean }
+
 export class Carousel {
   private readonly titles: HTMLElement[] = [];
   private readonly glyphs: HTMLElement[] = [];
@@ -43,11 +54,14 @@ export class Carousel {
   private readonly callbacks: ((index: number) => void)[] = [];
   private readonly mobile: MediaQueryList | null;
   private target = 0;
+  /** What the spring follows: the glide's value, or the pointer while dragging. */
+  private input = 0;
+  private glide: Glide | null = null;
   private y = 0; private yd = 0;
   private readonly k1 = ZETA / (Math.PI * F); private readonly k2 = 1 / ((2 * Math.PI * F) ** 2);
-  private tween: { from: number; to: number; t: number } | null = null;
   private wheelLockUntil = 0; private lastWheel = -Infinity; private wheelArmed = true;
-  private touch: { x: number; y: number; done: boolean } | null = null;
+  private drag: Drag | null = null;
+  private touchActionTarget: HTMLElement | null = null; private touchActionWas = '';
   private dirty = true;
   private destroyed = false;
 
@@ -65,6 +79,7 @@ export class Carousel {
       root.append(title);
       this.titles.push(title); this.glyphs.push(glyph);
     });
+    if (options.enter) root.dataset.enter = '';
     this.mobile = typeof matchMedia === 'function' ? matchMedia('(max-width:700px)') : null;
     if (this.mobile) {
       const onChange = () => { this.dirty = true; };
@@ -79,40 +94,54 @@ export class Carousel {
   get length() { return this.titles.length; }
   /** Smoothed velocity in titles per second (what the lift/skew read). */
   get velocity() { return this.yd; }
+  /** True while the pointer is scrubbing the carousel — the page should ignore the click that ends it. */
+  get dragging() { return !!this.drag?.active; }
 
   set(i: number) {
     const next = clamp(Math.round(i), 0, this.titles.length - 1);
-    if (next === this.target) return;
+    if (next === this.target && !this.drag) return;
+    const changed = next !== this.target;
     this.target = next;
-    if (this.options.reducedMotion) this.tween = { from: this.y, to: next, t: 0 };
+    const distance = Math.abs(next - this.input);
+    this.glide = { from: this.input, to: next, t: 0, duration: distance < .02 ? 0 : TURN + TURN_EXTRA * Math.max(0, distance - 1) };
     this.dirty = true;
     this.mark();
-    for (const cb of this.callbacks) cb(next);
+    if (changed) for (const cb of this.callbacks) cb(next);
   }
   next() { this.step(1); }
   prev() { this.step(-1); }
   onChange(cb: (index: number) => void) { this.callbacks.push(cb); }
+  /** Bring the titles up from below the fold (needs `enter: true`). */
+  reveal() {
+    if (!('enter' in this.root.dataset)) return;
+    this.root.dataset.revealing = '';
+    delete this.root.dataset.enter;
+    const settle = 1200 + 90 * Math.max(this.target, this.titles.length - 1 - this.target) + 100;
+    const timer = setTimeout(() => { delete this.root.dataset.revealing; }, settle);
+    this.listeners.push(() => clearTimeout(timer));
+  }
 
   update(dt: number) {
     if (this.destroyed) return;
     dt = clamp(dt, 0, 1 / 20);
     const now = performance.now();
     if (!this.wheelArmed && now - this.lastWheel > WHEEL_GAP) this.wheelArmed = true;
-    const x = this.target;
+    if (this.glide && dt > 0) {
+      const g = this.glide;
+      g.t = g.duration > 0 ? Math.min(1, g.t + dt / g.duration) : 1;
+      this.input = g.from + (g.to - g.from) * lusion(g.t);
+      if (g.t >= 1) { this.input = g.to; this.glide = null; }
+      this.dirty = true;
+    }
+    const x = this.input;
     if (this.options.reducedMotion) {
-      if (this.tween) {
-        const tw = this.tween; tw.t = Math.min(1, tw.t + dt * 1000 / TWEEN);
-        const prev = this.y;
-        this.y = tw.from + (tw.to - tw.from) * lusion(tw.t);
-        this.yd = dt > 0 ? (this.y - prev) / dt : 0;
-        if (tw.t >= 1) { this.tween = null; this.y = x; this.yd = 0; }
-        this.dirty = true;
-      }
+      if (this.y !== x) { this.yd = dt > 0 ? (x - this.y) / dt : 0; this.y = x; this.dirty = true; }
+      else this.yd = 0;
     } else if (dt > 0 && (Math.abs(this.y - x) > EPS || Math.abs(this.yd) > EPS)) {
       const k2 = Math.max(this.k2, dt * dt / 2 + dt * this.k1 / 2, dt * this.k1);
       this.y += dt * this.yd;
       this.yd += dt * (x - this.y - this.k1 * this.yd) / k2;
-      if (Math.abs(this.y - x) < EPS && Math.abs(this.yd) < EPS) { this.y = x; this.yd = 0; }
+      if (!this.glide && !this.drag && Math.abs(this.y - x) < EPS && Math.abs(this.yd) < EPS) { this.y = x; this.yd = 0; }
       this.dirty = true;
     }
     if (this.dirty) this.write();
@@ -131,24 +160,62 @@ export class Carousel {
       const gap = now - this.lastWheel;
       this.lastWheel = now;
       if (gap > WHEEL_GAP) this.wheelArmed = true;
-      if (!this.wheelArmed || now < this.wheelLockUntil || Math.abs(delta) < WHEEL_MIN) return;
+      if (!this.wheelArmed || now < this.wheelLockUntil || Math.abs(delta) < WHEEL_MIN || this.drag) return;
       this.wheelArmed = false;
       this.wheelLockUntil = now + WHEEL_LOCK;
       this.step(delta > 0 ? 1 : -1);
     }, { passive: false });
-    on(target, 'touchstart', (event) => {
-      const t = event.touches[0];
-      this.touch = t ? { x: t.clientX, y: t.clientY, done: false } : null;
-    }, { passive: true });
-    on(target, 'touchmove', (event) => {
-      const t = event.touches[0];
-      if (!this.touch || this.touch.done || !t) return;
-      const dx = t.clientX - this.touch.x, dy = t.clientY - this.touch.y;
-      if (Math.abs(dx) < SWIPE || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-      this.touch.done = true;
-      this.step(dx < 0 ? 1 : -1);
-    }, { passive: true });
-    on(target, 'touchend', () => { this.touch = null; }, { passive: true });
+
+    // Horizontal pans must reach us as pointer moves instead of becoming native scroll.
+    const host = target instanceof HTMLElement ? target : document.documentElement;
+    this.touchActionTarget = host; this.touchActionWas = host.style.touchAction; host.style.touchAction = 'pan-y';
+    on(target, 'pointerdown', (event) => {
+      if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      const el = event.target as HTMLElement | null;
+      if (el?.closest('a,button,input,textarea,select,[data-no-drag]')) return;
+      this.drag = { id: event.pointerId, x0: event.clientX, y0: event.clientY, pos0: this.y, x: event.clientX, t: performance.now(), vx: 0, active: false };
+    });
+    on(target, 'pointermove', (event) => {
+      const d = this.drag;
+      if (!d || event.pointerId !== d.id) return;
+      const dx = event.clientX - d.x0, dy = event.clientY - d.y0;
+      if (!d.active) {
+        if (Math.abs(dx) < DRAG_START) return;
+        if (Math.abs(dy) > Math.abs(dx) * 1.3) { this.drag = null; return; }
+        d.active = true; d.pos0 = this.y; d.x0 = event.clientX; d.x = event.clientX;
+        this.glide = null;
+        this.root.classList.add('dragging');
+      }
+      const now = performance.now(), dtMs = now - d.t;
+      if (dtMs > 0) { const v = (event.clientX - d.x) / dtMs; d.vx = d.vx * .6 + v * .4; }
+      d.x = event.clientX; d.t = now;
+      const raw = d.pos0 - (event.clientX - d.x0) / this.spacingPx();
+      const last = this.titles.length - 1;
+      this.input = raw < 0 ? raw * OVERDRAG : raw > last ? last + (raw - last) * OVERDRAG : raw;
+      this.dirty = true;
+      if (event.cancelable) event.preventDefault();
+    }, { passive: false });
+    const release = (event: PointerEvent) => {
+      const d = this.drag;
+      if (!d || event.pointerId !== d.id) return;
+      this.drag = null;
+      if (!d.active) return;
+      this.root.classList.remove('dragging');
+      const dx = event.clientX - d.x0;
+      const fling = -d.vx * 1000 / this.spacingPx() * FLING;
+      let next = Math.round(this.input + fling);
+      const dir = Math.sign(-dx);
+      if (Math.abs(dx) >= SWIPE && next === Math.round(d.pos0) && dir) next = Math.round(d.pos0) + dir;
+      next = clamp(next, 0, this.titles.length - 1);
+      const window_ = target instanceof Window ? target : window;
+      const swallow = (e: Event) => { e.stopPropagation(); e.preventDefault(); };
+      window_.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window_.removeEventListener('click', swallow, { capture: true }), 120);
+      this.set(next);
+    };
+    on(target, 'pointerup', release);
+    on(target, 'pointercancel', release);
+
     on(target, 'keydown', (event) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
       const el = event.target as HTMLElement | null;
@@ -172,10 +239,14 @@ export class Carousel {
   destroy() {
     this.destroyed = true;
     for (const off of this.listeners.splice(0)) off();
+    if (this.touchActionTarget) this.touchActionTarget.style.touchAction = this.touchActionWas;
     this.callbacks.length = 0;
     this.root.replaceChildren();
-    this.root.classList.remove('carousel', 'moving');
+    this.root.classList.remove('carousel', 'moving', 'dragging');
+    delete this.root.dataset.enter; delete this.root.dataset.revealing;
   }
+
+  private spacingPx() { return (this.mobile?.matches ? SPACING_MOBILE : SPACING) / 100 * Math.max(320, window.innerWidth); }
 
   /** One step, with a velocity kick against the end stops that the spring pulls back (the rubber-band). */
   private step(dir: 1 | -1) {
@@ -191,6 +262,7 @@ export class Carousel {
     this.titles.forEach((title, i) => {
       if (i === this.target) { title.setAttribute('aria-current', 'true'); title.dataset.active = ''; }
       else { title.removeAttribute('aria-current'); delete title.dataset.active; }
+      title.style.setProperty('--k', String(Math.abs(i - this.target)));
     });
   }
 
@@ -199,9 +271,9 @@ export class Carousel {
     const pos = this.y, v = this.yd;
     const spacing = this.mobile?.matches ? SPACING_MOBILE : SPACING;
     const speed = Math.abs(v);
-    const lift = clamp(speed * 9, 0, 12).toFixed(2);
-    const skew = clamp(-v * 2.4, -4.5, 4.5).toFixed(2);
-    const moving = speed > .02;
+    const lift = clamp(speed * 9, 0, 12);
+    const skew = clamp(-v * 2.4, -4.5, 4.5);
+    const moving = !this.options.reducedMotion && (speed > .02 || !!this.drag?.active);
     this.root.classList.toggle('moving', moving);
     this.root.style.setProperty('--velocity', v.toFixed(4));
     this.titles.forEach((title, i) => {
@@ -214,7 +286,9 @@ export class Carousel {
       title.style.opacity = opacity.toFixed(3);
       title.style.setProperty('--solid', solid.toFixed(3));
       title.style.setProperty('--stroke', (.55 * (1 - solid)).toFixed(3));
-      this.glyphs[i].style.transform = moving ? `translateY(${-lift}px) skewX(${skew}deg)` : '';
+      // The centre carries the full lift; the drum's far titles trail it a little, like letters on a turning wheel.
+      const trail = 1 - .18 * Math.min(a, 2);
+      this.glyphs[i].style.transform = moving ? `translateY(${(-lift * trail).toFixed(2)}px) skewX(${(skew * trail).toFixed(2)}deg)` : '';
     });
   }
 }
