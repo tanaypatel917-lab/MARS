@@ -22,6 +22,7 @@ try {
     await ready(page, frame);
     assert.equal(await page.locator('body').getAttribute('data-renderer'), 'ready');
     assert.equal(await page.locator('body').getAttribute('data-intro'), 'done');
+    await page.waitForFunction(e => document.querySelector('#counter')?.textContent === e, expected, { timeout: 8000 }).catch(() => {});
     assert.equal(await counter(), expected);
     assert.equal(await visiblePanels(), open);
     assert.equal(await page.locator('canvas#scene').count(), 1);
