@@ -169,7 +169,7 @@ export class MarsScene {
     this.camera.lookAt(0, 0, 0);
     this.camera.updateMatrixWorld();
     const halfWidth = this.camera.position.z * Math.tan(THREE.MathUtils.degToRad(15)) * this.camera.aspect;
-    this.morph.uWordScale.value = Math.min(1, halfWidth / 2.55);
+    this.morph.uWordScale.value = Math.min(1, halfWidth * .92 / (WORD_HALF_WIDTH * .56));
     const w = Math.round(width * this.ratio), h = Math.round(height * this.ratio);
     this.mask.setSize(w, h);
     this.outline.uniforms.uTexel.value.set(1 / w, 1 / h);
@@ -273,7 +273,7 @@ export class MarsScene {
   /** Each body vertex is projected onto the wordmark plane and snapped to the nearest glyph cell, so triangles stay local and the letters read. */
   private assignTargets(image: ImageData) {
     const cols = 192, rows = 48;
-    const halfWidth = 2.3, halfHeight = halfWidth * image.height / image.width;
+    const halfWidth = WORD_HALF_WIDTH, halfHeight = halfWidth * image.height / image.width;
     const filled: number[] = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const x = Math.floor((c + .5) / cols * image.width), y = Math.floor((r + .5) / rows * image.height);
@@ -347,3 +347,6 @@ function detectTier(renderer: THREE.WebGLRenderer, mobile: boolean): keyof typeo
   if (mobile || /intel\(r\) (hd|uhd) graphics [456]\d\d|mali-[gt][0-9]{2}\b|adreno \(tm\) [1-5]/i.test(gpu)) return 'mid';
   return 'full';
 }
+
+/** Half-width of the wordmark plane in planet radii; the glyphs cover ~56% of it. Keep in sync with vWordUv in bodyVertex (7.2 = 2× this, 1.8 = 2× this × 512/2048). */
+const WORD_HALF_WIDTH = 3.6;

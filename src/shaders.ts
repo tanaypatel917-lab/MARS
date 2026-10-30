@@ -14,7 +14,7 @@ void main(){
   float arc=sin(k*3.14159);
   vec3 p=mix(position,aTarget*uWordScale,k)+normal*arc*.18*(.6+.4*sin(position.y*9.+position.x*7.));
   vec3 n=normalize(mix(normal,vec3(0.,0.,1.),k*.85));
-  vWordUv=vec2(.5+aTarget.x/4.6,.5+aTarget.y/1.15);
+  vWordUv=vec2(.5+aTarget.x/7.2,.5+aTarget.y/1.8);
   vNormal=normalize(normalMatrix*n);vObject=position;vUv=uv;vec4 mv=modelViewMatrix*vec4(p,1.);vView=mv.xyz;gl_Position=projectionMatrix*mv;}
 `;
 
