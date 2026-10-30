@@ -47,6 +47,9 @@ const end = select('#waitlist');
 const form = select<HTMLFormElement>('#access-form');
 const email = select<HTMLInputElement>('#email');
 const soundButton = select<HTMLButtonElement>('#sound');
+const waveCanvas = soundButton.querySelector<HTMLCanvasElement>('.wav');
+const waveContext = waveCanvas?.getContext('2d');
+let wavePhase = 0;
 const about = select('#about');
 const aboutToggle = select<HTMLButtonElement>('#about-toggle');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -357,9 +360,6 @@ function roll(el: HTMLElement) {
 }
 
 /** Lusion-style live waveform in the sound button: the drone's own samples, a flat line when muted. */
-const waveCanvas = soundButton.querySelector<HTMLCanvasElement>('.wav');
-const waveContext = waveCanvas?.getContext('2d');
-let wavePhase = 0;
 function drawWave() {
   if (!waveCanvas || !waveContext) return;
   const { width, height } = waveCanvas;
