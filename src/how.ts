@@ -115,7 +115,8 @@ function views(closing: number): PanelView[] {
       style.zIndex = String(i);
       (chapter.panel.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
     }
-    if (h > bar + 10 && w > 48) out.push({ pass: chapter.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2 });
+    const spawn = Math.max(1 - smooth((chapter.shown - .02) / .5), smooth((closing - .1) / .6));
+    if (h > bar + 10 && w > 48) out.push({ pass: chapter.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2, spawn });
   });
   return out;
 }
@@ -160,6 +161,8 @@ function draw(now: number) {
     rimGhost: (1 - ascend) * ease(t, .6, 1.0) * .3,
     settle: 0,
     pointer: { x: pointer.x, y: pointer.y },
+    morph: 0,
+    split: spinVelocity * .0022,
     spin,
     light: Math.min(1, t / 1.5) * (pointer.seen ? 1 : .35),
     horizon: ascend * .8,

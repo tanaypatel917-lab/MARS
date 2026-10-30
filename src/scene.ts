@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import * as shader from './shaders';
-import { planetGeometry, wireGeometry } from './geometry';
+import { fbm, planetGeometry, wireGeometry } from './geometry';
 
 export type Pass = 'wireframe' | 'observe' | 'evaluate' | 'refine' | 'beauty';
 /** A panel's inner viewport in CSS pixels, measured from the top-left of the page. */
-export interface PanelView { pass: Pass; x: number; y: number; w: number; h: number }
+export interface PanelView { pass: Pass; x: number; y: number; w: number; h: number; spawn: number }
 export interface FrameState {
   time: number;
   outlineReveal: number;
@@ -18,6 +18,9 @@ export interface FrameState {
   settle: number;
   /** Pointer in -1..1 (x right, y up) and extra spin from scroll velocity. */
   pointer: { x: number; y: number };
+  morph: number;
+  /** Horizontal RGB split of the hairline in viewport fraction; follows scroll velocity (madrepunk). */
+  split: number;
   spin: number;
   light: number;
   horizon: number;
@@ -61,19 +64,33 @@ export class MarsScene {
   private ratio = 1;
   private fraction = .64;
   private disposed = false;
+  private readonly spawn = { uSpawn: { value: 0 } };
+  private readonly morph = { uMorph: { value: 0 }, uWordScale: { value: 1 }, uBox: { value: new THREE.Vector2(2, .5) }, tWord: { value: null as THREE.Texture | null } };
+  private readonly bodyGeometries: THREE.BufferGeometry[] = [];
+  readonly tier: 'full' | 'mid' | 'lite';
+  private readonly dprCap: number;
+  private readonly pixelBudget: number;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.autoClear = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     const mobile = Math.min(innerWidth, innerHeight) < 700;
-    const body = planetGeometry(mobile ? 22 : 36);
-    const wire = wireGeometry(mobile ? 160 : 260);
+    this.tier = detectTier(this.renderer, mobile);
+    const q = TIERS[this.tier];
+    this.dprCap = q.dpr; this.pixelBudget = q.budget;
+    const body = planetGeometry(q.detail);
+    const wire = wireGeometry(q.wire);
     const shell = body.clone().scale(1.03, 1.03, 1.03);
+    this.bodyGeometries.push(body, shell);
+    for (const g of this.bodyGeometries) {
+      g.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
+      g.setAttribute('aDelay', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
+    }
     const quad = new THREE.PlaneGeometry(2, 2);
     this.disposables.push(body, wire, shell, quad);
     const material = (fragmentShader: string, uniforms: Record<string, THREE.IUniform> = {}, extra: THREE.ShaderMaterialParameters = {}) => {
-      const m = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader, uniforms, ...extra });
+      const m = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader, uniforms: { ...uniforms, ...this.morph, ...this.spawn }, ...extra });
       this.disposables.push(m);
       return m;
     };
@@ -85,7 +102,7 @@ export class MarsScene {
     };
     this.wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: 1 } }, transparent: true, depthWrite: false });
     this.transmission = material(shader.transmissionFragment, { uTime: { value: 0 }, uRect: { value: new THREE.Vector4() } });
-    const bake = new THREE.WebGLRenderTarget(mobile ? 1024 : 2048, mobile ? 512 : 1024, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    const bake = new THREE.WebGLRenderTarget(q.bake, q.bake / 2, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     const bakeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.bakeFragment, depthTest: false, depthWrite: false });
     const bakeScene = new THREE.Scene();
     bakeScene.add(new THREE.Mesh(quad, bakeMaterial));
@@ -119,23 +136,23 @@ export class MarsScene {
     this.passes = {
       wireframe: wireScene,
       observe: this.single(body, material(shader.uvFragment), mesh),
-      evaluate: this.single(body, material(shader.normalFragment), mesh),
+      evaluate: this.single(body, material(shader.normalFragment, { tTerrain: { value: bake.texture } }), mesh),
       refine: refineScene,
       beauty: beautyScene,
     };
-    const maskMaterial = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader: shader.maskFragment });
+    const maskMaterial = new THREE.ShaderMaterial({ vertexShader: shader.bodyVertex, fragmentShader: shader.maskFragment, uniforms: { ...this.morph } });
     this.disposables.push(maskMaterial);
     mesh(body, maskMaterial, this.maskScene);
     this.mask = new THREE.WebGLRenderTarget(2, 2, { depthBuffer: true, format: THREE.RGBAFormat });
     this.disposables.push(this.mask);
     this.outline = new THREE.ShaderMaterial({
       vertexShader: shader.fullscreenVertex, fragmentShader: shader.outlineFragment, transparent: true, depthTest: false, depthWrite: false,
-      uniforms: { tMask: { value: this.mask.texture }, uTexel: { value: new THREE.Vector2() }, uCenter: { value: new THREE.Vector2(.5, .5) }, uReveal: { value: 1 }, uOpacity: { value: 1 } },
+      uniforms: { tMask: { value: this.mask.texture }, uTexel: { value: new THREE.Vector2() }, uCenter: { value: new THREE.Vector2(.5, .5) }, uReveal: { value: 1 }, uOpacity: { value: 1 }, uSplit: { value: 0 } },
     });
     this.disposables.push(this.outline);
     mesh(quad, this.outline, this.outlineScene, false).frustumCulled = false;
     this.voidMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.voidFragment, depthTest: false, depthWrite: false,
-      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 }, uHorizon: { value: 0 }, uWord: { value: 0 }, tWord: { value: null } } });
+      uniforms: { uPointer: { value: new THREE.Vector2(.5, .5) }, uAspect: { value: 1 }, uTime: { value: 0 }, uLight: { value: 0 }, uHorizon: { value: 0 }, uWord: { value: 0 }, tWord: { value: null }, tMask: { value: this.mask.texture } } });
     this.disposables.push(this.voidMaterial);
     mesh(quad, this.voidMaterial, this.voidScene, false).frustumCulled = false;
     this.resize();
@@ -152,7 +169,7 @@ export class MarsScene {
 
   resize() {
     const width = innerWidth, height = innerHeight;
-    this.ratio = Math.min(devicePixelRatio || 1, 1.5, Math.sqrt(2_400_000 / (width * height)));
+    this.ratio = Math.min(devicePixelRatio || 1, this.dprCap, Math.sqrt(this.pixelBudget / (width * height)));
     this.renderer.setPixelRatio(this.ratio);
     this.renderer.setSize(width, height);
     this.camera.aspect = width / height;
@@ -164,12 +181,15 @@ export class MarsScene {
     this.camera.position.set(0, 0, 1.07 / Math.sin(halfAngle));
     this.camera.lookAt(0, 0, 0);
     this.camera.updateMatrixWorld();
+    const halfWidth = this.camera.position.z * Math.tan(THREE.MathUtils.degToRad(15)) * this.camera.aspect;
+    this.morph.uWordScale.value = Math.min(1, halfWidth * .92 / (WORD_HALF_WIDTH * .56));
     const w = Math.round(width * this.ratio), h = Math.round(height * this.ratio);
     this.mask.setSize(w, h);
     this.outline.uniforms.uTexel.value.set(1 / w, 1 / h);
   }
 
   render(state: FrameState) {
+    this.morph.uMorph.value = state.morph;
     if (this.disposed) return;
     const r = this.renderer;
     const drift = state.time * .05;
@@ -179,7 +199,8 @@ export class MarsScene {
     const sx = state.shift?.x ?? 0, sy = state.shift?.y ?? 0;
     this.outline.uniforms.uCenter.value.set(.5 + sx / (2 * this.unitsPerHalfHeight * this.camera.aspect), .5 + sy / (2 * this.unitsPerHalfHeight));
     for (const body of this.bodies) {
-      body.rotation.set(.18 - state.pointer.y * .10, spin + state.pointer.x * .12, -.08);
+      const settle = 1 - THREE.MathUtils.smoothstep(state.morph, 0, .28);
+      body.rotation.set((.18 - state.pointer.y * .10) * settle, (spin + state.pointer.x * .12) * settle, -.08 * settle);
       body.position.set(state.pointer.x * .03 + sx, state.settle * .16 + state.pointer.y * .02 + sy, 0);
       body.scale.setScalar(scale);
       body.updateMatrixWorld();
@@ -208,18 +229,22 @@ export class MarsScene {
     if (state.beautyFade > .001) {
       this.setFade(state.beautyFade);
       this.dusk.visible = false;
+      this.spawn.uSpawn.value = (1 - state.beautyFade) * .9;
       r.render(this.passes.beauty, this.camera);
+      this.spawn.uSpawn.value = 0;
     }
     if (state.rimGhost > .001 && state.beautyFade < .001) { this.setFade(state.rimGhost); r.render(this.rimScene, this.camera); }
     if (state.wireOpacity > .001 && state.wireReveal > 0) r.render(this.passes.wireframe, this.camera);
     const height = innerHeight;
     for (const panel of state.panels) {
       if (panel.w < 2 || panel.h < 2) continue;
-      this.scissor.set(Math.round(panel.x * this.ratio), Math.round((height - panel.y - panel.h) * this.ratio), Math.round(panel.w * this.ratio), Math.round(panel.h * this.ratio));
+      // three multiplies setScissor() by the pixel ratio itself; shaders reading gl_FragCoord need device pixels.
       r.setScissorTest(true);
-      r.setScissor(this.scissor);
+      r.setScissor(panel.x, height - panel.y - panel.h, panel.w, panel.h);
+      this.scissor.set(Math.round(panel.x * this.ratio), Math.round((height - panel.y - panel.h) * this.ratio), Math.round(panel.w * this.ratio), Math.round(panel.h * this.ratio));
       r.setClearColor(PASS_BACKGROUND[panel.pass], 1);
       r.clear(true, true, false);
+      this.spawn.uSpawn.value = panel.spawn;
       if (panel.pass === 'beauty') {
         this.setFade(1);
         this.dusk.visible = true;
@@ -234,7 +259,9 @@ export class MarsScene {
       }
       r.render(this.passes[panel.pass], this.camera);
     }
+    this.spawn.uSpawn.value = 0;
     r.setScissorTest(false);
+    this.outline.uniforms.uSplit.value = state.split;
     this.outline.uniforms.uReveal.value = state.outlineReveal;
     this.outline.uniforms.uOpacity.value = state.outlineOpacity;
     if (state.outlineOpacity > .001 && state.outlineReveal > 0) r.render(this.outlineScene, this.camera);
@@ -259,6 +286,76 @@ export class MarsScene {
     texture.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
     this.disposables.push(texture);
     this.voidMaterial.uniforms.tWord.value = texture;
+    this.morph.tWord.value = texture;
+    this.assignTargets(context.getImageData(0, 0, canvas.width, canvas.height));
+  }
+
+  /**
+   * Each body vertex is projected onto the wordmark's bounding box and pulled to the nearest point inside a glyph
+   * (its own projection when that lands on ink, otherwise the closest point of the nearest inked cell), so neighbouring
+   * vertices keep their order and the letters form without ridges. aDelay staggers the flow left to right.
+   */
+  private assignTargets(image: ImageData) {
+    const cols = 192, rows = 48;
+    const halfWidth = WORD_HALF_WIDTH, halfHeight = halfWidth * image.height / image.width;
+    const filled: number[] = [];
+    const ink = new Uint8Array(cols * rows);
+    let minC = cols, maxC = -1, minR = rows, maxR = -1;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const x = Math.floor((c + .5) / cols * image.width), y = Math.floor((r + .5) / rows * image.height);
+      if (image.data[(y * image.width + x) * 4] > 128) {
+        filled.push(c, r);
+        ink[r * cols + c] = 1;
+        minC = Math.min(minC, c); maxC = Math.max(maxC, c); minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+      }
+    }
+    if (!filled.length) return;
+    const nearest = new Int32Array(cols * rows);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      let best = 0, bestDistance = Infinity;
+      for (let i = 0; i < filled.length; i += 2) {
+        const d = (filled[i] - c) ** 2 + (filled[i + 1] - r) ** 2;
+        if (d < bestDistance) { bestDistance = d; best = i; }
+      }
+      nearest[r * cols + c] = best;
+    }
+    const u0 = minC / cols, u1 = (maxC + 1) / cols, v0 = minR / rows, v1 = (maxR + 1) / rows;
+    this.morph.uBox.value.set((u1 - u0) * halfWidth, (v1 - v0) * halfHeight);
+    for (const geometry of this.bodyGeometries) {
+      const position = geometry.attributes.position as THREE.BufferAttribute;
+      const target = geometry.attributes.aTarget as THREE.BufferAttribute;
+      const delay = geometry.attributes.aDelay as THREE.BufferAttribute;
+      for (let i = 0; i < position.count; i++) {
+        const px = THREE.MathUtils.clamp(position.getX(i) * SPREAD, -1, 1) * .5 + .5, py = THREE.MathUtils.clamp(position.getY(i) / 1.07 * SPREAD, -1, 1) * .5 + .5;
+        const cc = THREE.MathUtils.clamp((u0 + px * (u1 - u0)) * cols, 0, cols - 1e-3), rr = THREE.MathUtils.clamp((v1 - py * (v1 - v0)) * rows, 0, rows - 1e-3);
+        const ci = Math.floor(cc), ri = Math.floor(rr);
+        let tx = cc, ty = rr;
+        if (!ink[ri * cols + ci]) {
+          const cell = nearest[ri * cols + ci];
+          tx = THREE.MathUtils.clamp(cc, filled[cell] + .05, filled[cell] + .95);
+          ty = THREE.MathUtils.clamp(rr, filled[cell + 1] + .05, filled[cell + 1] + .95);
+        }
+        const drift = fbm(position.getX(i) * 1.8 + 5.2, position.getY(i) * 1.8, position.getZ(i) * 1.8, 3) * .5 + .5;
+        target.setXYZ(i, (tx / cols - .5) * 2 * halfWidth, (.5 - ty / rows) * 2 * halfHeight, position.getZ(i) * .12);
+        delay.setX(i, THREE.MathUtils.clamp((tx / cols - u0) / (u1 - u0), 0, 1) * .82 + drift * .18);
+      }
+      target.needsUpdate = true;
+      delay.needsUpdate = true;
+    }
+  }
+
+  /** Compile every material once so the intro never hitches on first use. */
+  warm() {
+    const r = this.renderer;
+    r.setScissorTest(true);
+    r.setScissor(0, 0, 2, 2);
+    for (const pass of Object.values(this.passes)) r.render(pass, this.camera);
+    r.render(this.maskScene, this.camera);
+    r.render(this.outlineScene, this.camera);
+    r.render(this.voidScene, this.camera);
+    r.render(this.rimScene, this.camera);
+    r.setScissorTest(false);
+    r.clear();
   }
 
   private setFade(value: number) {
@@ -273,3 +370,26 @@ export class MarsScene {
     this.renderer.dispose();
   }
 }
+
+const TIERS = {
+  full: { detail: 36, wire: 260, bake: 2048, dpr: 1.5, budget: 2_400_000 },
+  mid: { detail: 26, wire: 200, bake: 1536, dpr: 1.25, budget: 1_800_000 },
+  lite: { detail: 18, wire: 140, bake: 1024, dpr: 1, budget: 1_200_000 },
+} as const;
+
+/** Pick a quality tier from the GPU string and screen size (the way unbelievablycrap serves a full and a lite scan). */
+function detectTier(renderer: THREE.WebGLRenderer, mobile: boolean): keyof typeof TIERS {
+  const forced = new URLSearchParams(location.search).get('tier');
+  if (forced && forced in TIERS) return forced as keyof typeof TIERS;
+  const gl = renderer.getContext();
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+  if (/swiftshader|llvmpipe|softpipe|software/i.test(gpu)) return 'lite';
+  if (mobile || /intel\(r\) (hd|uhd) graphics [456]\d\d|mali-[gt][0-9]{2}\b|adreno \(tm\) [1-5]/i.test(gpu)) return 'mid';
+  return 'full';
+}
+
+/** Half-width of the wordmark plane in planet radii; the glyphs cover ~56% of it. Keep in sync with vWordUv in bodyVertex (7.2 = 2× this, 1.8 = 2× this × 512/2048). */
+const WORD_HALF_WIDTH = 3.6;
+/** The planet's projection is enlarged by this before it is clamped to the word box, so its triangles also reach the box corners (M's and S's outer strokes). */
+const SPREAD = 1.5;

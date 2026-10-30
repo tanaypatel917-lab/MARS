@@ -47,6 +47,9 @@ const end = select('#waitlist');
 const form = select<HTMLFormElement>('#access-form');
 const email = select<HTMLInputElement>('#email');
 const soundButton = select<HTMLButtonElement>('#sound');
+const waveCanvas = soundButton.querySelector<HTMLCanvasElement>('.wav');
+const waveContext = waveCanvas?.getContext('2d');
+let wavePhase = 0;
 const about = select('#about');
 const aboutToggle = select<HTMLButtonElement>('#about-toggle');
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -90,6 +93,7 @@ let scene: MarsScene | undefined;
 let lenis: Lenis | undefined;
 let progress = 0;
 let introTime = 0;
+let framesRendered = 0;
 let introFrozen = false;
 let lastTick = 0;
 let endShown = false;
@@ -107,6 +111,8 @@ try {
   document.body.dataset.renderer = 'fallback';
 }
 
+const SPAWN_ALLOWED = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
 function panelViews(): PanelView[] {
   const radius = planetRadius(), cx = innerWidth / 2, cy = innerHeight / 2;
   const bar = Math.min(innerWidth, innerHeight) < 700 ? 20 : 24;
@@ -116,8 +122,8 @@ function panelViews(): PanelView[] {
     const closing = ease(progress, CLOSE_START + (panels.length - 1 - i) * .012, .07);
     const open = opening * (1 - closing);
     const tear = opening > .02 && opening < .5 ? Math.round((Math.random() - .5) * 10 * (1 - opening * 2)) : 0;
-    const left = Math.round(cx + panel.x * radius) + tear, top = Math.round(cy + panel.y * radius);
     const fullWidth = Math.round(panel.w * radius);
+    const left = Math.min(Math.round(cx + panel.x * radius), innerWidth - Math.min(fullWidth, 170)) + tear, top = Math.round(cy + panel.y * radius);
     const wide = smooth(open / .62), tall = smooth((open - .38) / .62);
     const w = Math.round(fullWidth * wide), h = Math.round(panel.h * radius * tall);
     if (open !== panel.open || tear) {
@@ -131,7 +137,9 @@ function panelViews(): PanelView[] {
       style.zIndex = String(i);
       (panel.element.firstElementChild as HTMLElement).style.width = `${fullWidth}px`;
     }
-    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2 });
+    // De-materialise on close only while the window is the sole view of the planet; over the finished planet the discarded cells would show as dark holes.
+    const spawn = SPAWN_ALLOWED ? Math.max(1 - smooth((opening - .02) / .5), progress > .80 ? 0 : smooth((closing - .1) / .6)) : 0;
+    if (h > bar + 10 && w > 48) views.push({ pass: panel.pass, x: left + 1, y: top + bar + 1, w: w - 2, h: h - bar - 2, spawn });
   });
   return views;
 }
@@ -165,7 +173,7 @@ function draw(now: number) {
     pointer.py += (pointer.cy - pointer.py) * .22;
     cursor.style.transform = `translate(${pointer.px}px, ${pointer.py}px) translate(-50%, -50%) scale(${pointer.hot ? 2.6 : 1})`;
   }
-  if (t < INTRO && !introFrozen || frame === 'intro') boot.textContent = `tracing · ${String(Math.round(ease(t, .3, 1.5) * 100)).padStart(3, '0')}`;
+  if (t < INTRO && !introFrozen || frame === 'intro') boot.textContent = `tracing · ${String(Math.min(Math.round(ease(t, .3, 1.5) * 100), introFrozen || t > INTRO - .4 ? 100 : Math.min(100, 30 + framesRendered * 6))).padStart(3, '0')}`;
   const state: FrameState = {
     time: now,
     outlineReveal: ease(t, .3, 1.5),
@@ -179,7 +187,9 @@ function draw(now: number) {
     spin,
     light: Math.min(1, t / 2.2) * (pointer.seen ? 1 : .35),
     horizon: ease(progress, .84, .14),
-    word: ease(progress, .88, .12),
+    word: ease(progress, .86, .08) * (1 - smooth((progress - .88) / .08)),
+    morph: smooth((progress - .87) / .13),
+    split: spinVelocity * .0022,
     panels: views,
   };
   if (!document.hidden) scene?.render(state);
@@ -190,13 +200,15 @@ function finishIntro() {
   document.body.dataset.intro = 'done';
   document.body.dataset.ui = 'on';
   lenis?.start();
-  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => jump(value)); }
+  if (pendingJump !== undefined) { const value = pendingJump; pendingJump = undefined; requestAnimationFrame(() => requestAnimationFrame(() => { lenis?.resize(); jump(value); if (value === 1) email.focus({ preventScroll: true }); })); }
 }
 function skipIntro() {
   if (introFrozen || introTime >= INTRO) return;
-  gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; } });
+  gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; }, onComplete() { introTime = INTRO; finishIntro(); } });
 }
 function tick(time: number) {
+  framesRendered++;
+  drawWave();
   lenis?.raf(time * 1000);
   draw(time);
 }
@@ -252,6 +264,7 @@ function setAbout(open: boolean) {
   aboutToggle.setAttribute('aria-expanded', String(open));
   document.body.dataset.about = open ? 'on' : 'off';
   for (const region of [host, select('.hud'), select('.rail')]) region.inert = open;
+  end.inert = open || !endShown;
   if (open) {
     about.hidden = false;
     requestAnimationFrame(() => { about.classList.add('on'); select<HTMLButtonElement>('#about .close').focus({ preventScroll: true }); });
@@ -288,6 +301,7 @@ addEventListener('resize', resize);
 addEventListener('scroll', onScroll, { passive: true });
 addEventListener('wheel', skipIntro, { passive: true });
 addEventListener('touchstart', skipIntro, { passive: true });
+addEventListener('pointerdown', skipIntro, { passive: true });
 addEventListener('keydown', skipIntro);
 document.addEventListener('click', click);
 addEventListener('pointermove', event => {
@@ -316,9 +330,54 @@ updateMotion();
 await document.fonts.ready;
 await document.fonts.load('500 380px Switzer').catch(() => undefined);
 scene?.setWordmark('MARS', "500 380px Switzer, 'General Sans', sans-serif");
+scene?.warm();
+if (matchMedia('(hover: hover)').matches) for (const el of document.querySelectorAll<HTMLElement>('.brand, .links .link')) roll(el);
+if (scene) document.body.dataset.tier = scene.tier;
 const frames: Record<string, number> = { rest: 0, mid: .48, full: .72, close: .845, beauty: .97 };
 if (frame === 'intro' && !motion.matches) { introTime = 1.9; introFrozen = true; }
 else if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);
 else if (location.hash === '#waitlist') jump(1);
 if (document.body.dataset.intro === 'running' && !introFrozen) setTimeout(() => { introTime = INTRO; finishIntro(); }, INTRO * 1000 + 600);
 document.body.dataset.ready = 'true';
+
+/** Guillaume-style rolling glyphs: each character is doubled in a 1em clip and the stack slides up on hover. */
+function roll(el: HTMLElement) {
+  const text = el.textContent?.trim() ?? '';
+  if (!text) return;
+  el.setAttribute('aria-label', text);
+  el.textContent = '';
+  const wrap = document.createElement('span');
+  wrap.className = 'roll';
+  wrap.setAttribute('aria-hidden', 'true');
+  [...text].forEach((ch, i) => {
+    const g = document.createElement('span');
+    g.className = 'g';
+    g.style.setProperty('--i', String(i));
+    const glyph = ch === ' ' ? '\u00a0' : ch;
+    g.innerHTML = `<i>${glyph}</i><i>${glyph}</i>`;
+    wrap.append(g);
+  });
+  el.append(wrap);
+}
+
+/** Lusion-style live waveform in the sound button: the drone's own samples, a flat line when muted. */
+function drawWave() {
+  if (!waveCanvas || !waveContext) return;
+  const { width, height } = waveCanvas;
+  const samples = ambient.waveform();
+  waveContext.clearRect(0, 0, width, height);
+  waveContext.strokeStyle = getComputedStyle(soundButton).color;
+  waveContext.lineWidth = 2;
+  waveContext.globalAlpha = samples ? 1 : .45;
+  waveContext.beginPath();
+  const points = 24;
+  for (let i = 0; i <= points; i++) {
+    const x = (i / points) * width;
+    let y = height / 2;
+    if (samples) y += samples[Math.floor((i / points) * (samples.length - 1))] * height * 2.2;
+    else y += Math.sin(i / points * 6.28 + wavePhase) * .6;
+    if (i === 0) waveContext.moveTo(x, y); else waveContext.lineTo(x, y);
+  }
+  waveContext.stroke();
+  wavePhase += .02;
+}
