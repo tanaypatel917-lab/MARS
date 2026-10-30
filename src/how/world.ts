@@ -44,6 +44,7 @@ void main(){
   c*=.72+.28*vig;
   gl_FragColor=vec4(c,1.);
 }`;
+const withoutTime = (u: ReturnType<typeof steleUniforms>) => { const { uTime: _t, ...rest } = u; return rest; };
 const screenVertex = /* glsl */`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 
 export class HowWorld {
@@ -86,7 +87,7 @@ export class HowWorld {
     this.steleMaterial = new THREE.ShaderMaterial({ vertexShader: steleVertexShader(shader.bodyVertex), fragmentShader: shader.beautyFragment, uniforms: {
       uMorph: { value: 0 }, uWordScale: { value: 1 }, uBox: { value: new THREE.Vector2(1, 1) }, tWord: { value: null }, uSpawn: { value: 0 },
       uTime: { value: 0 }, uFade: { value: 1 }, uGrowth: { value: 1 }, uContour: { value: new THREE.Vector4() }, tTerrain: { value: bake.texture },
-      uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key }, ...steleUniforms() } });
+      uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key }, ...withoutTime(steleUniforms()) } });
     this.stele = new THREE.Mesh(stele.body, this.steleMaterial);
     this.stele.frustumCulled = false;
     this.scene.add(this.stele);

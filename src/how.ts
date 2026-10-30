@@ -86,7 +86,7 @@ const describe = (i: number) => {
 };
 const retint = (i: number) => {
   gsap.to(fog, { r: new THREE.Color(FOG[i]).r, g: new THREE.Color(FOG[i]).g, b: new THREE.Color(FOG[i]).b, duration: d(1.1), ease: lusion, overwrite: true,
-    onUpdate: () => world?.landscape.fog.copy(fog) });
+    onUpdate: () => { world?.landscape.fog.copy(fog); } });
 };
 const onMove = (i: number) => {
   if (i === lastMove) return;
