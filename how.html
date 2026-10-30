@@ -2,75 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050407" />
-    <meta name="description" content="How MARS works: five scenes over a colonised Martian plain. Observe · evaluate · refine · ascend." />
+    <meta name="description" content="How MARS works: the loop — observe, evaluate, refine, ascend — inside one Martian stone." />
     <link rel="icon" href="/favicon.svg" />
     <meta property="og:title" content="MARS · how it works" />
-    <meta property="og:description" content="Observe · evaluate · refine · ascend. The recursive self-improvement loop, one scene at a time." />
+    <meta property="og:description" content="Observe · evaluate · refine · ascend. Open the stone." />
     <meta property="og:image" content="/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
     <title>MARS · how it works</title>
   </head>
   <body data-route="how">
-    <a class="skip-link" href="#main">Skip to the text</a>
-    <noscript><p class="noscript">MARS: observe, evaluate, refine, ascend. Enable JavaScript to see the scenes.</p></noscript>
+    <a class="skip-link" href="#detail">Skip to the text</a>
+    <noscript><p class="noscript">MARS: observe, evaluate, refine, ascend. Enable JavaScript to open the stone.</p></noscript>
     <canvas id="scene" aria-hidden="true"></canvas>
     <div id="fallback" hidden aria-hidden="true"><svg viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="43" ry="46" /></svg></div>
     <div class="grain" aria-hidden="true"></div>
-    <div id="cursor" aria-hidden="true"></div>
+    <div id="cursor" aria-hidden="true"><span>open</span></div>
     <header class="ui corners">
       <a class="brand magnet" href="/">MARS</a>
       <nav class="links"><a class="link magnet" href="/how" aria-current="page" data-text="How">How</a><a class="link magnet" href="/#waitlist" data-text="Waitlist">Waitlist</a></nav>
+      <button id="close" class="magnet" type="button" hidden>Close</button>
     </header>
-    <div class="panels" aria-hidden="true"></div>
-    <div class="ui hud">
-      <span id="counter" aria-live="off"></span>
-      <span class="tag">the loop · observe, evaluate, refine, ascend</span>
-    </div>
-    <div class="rail ui" aria-hidden="true"><i></i><b></b><b></b><b></b><b></b><b></b></div>
-    <main class="how" id="main">
-      <section class="stage" id="loop" data-hint="hover a facet · click to crack it open">
-        <div class="copy">
-          <p class="label">the loop</p>
-          <h1>One model. One workflow. Four moves, repeated until day 100 beats day 1.</h1>
-          <p>MARS takes an open-weights model and points it at the tasks your team actually runs. It <b>observes</b> what happens, <b>evaluates</b> every output against checks you write as code, <b>refines</b> the weights on what passed, and <b>ascends</b> only when the new weights beat the old ones. Then it goes again.</p>
-          <p class="reveal" data-reveal></p>
-        </div>
-      </section>
-      <section class="stage" id="observe" data-hint="hover a trace · drag to turn the field">
-        <div class="copy">
-          <p class="label">iter 001 · observe</p>
-          <h2>Start from real traces, not a demo set.</h2>
-          <p>Every point is one run of your workflow — the input, the tool calls, the output, and the latency it took. They come from where the work already happens, through a drop-in SDK or a local proxy, and stay on your machine.</p>
-          <p class="reveal" data-reveal></p>
-        </div>
-      </section>
-      <section class="stage" id="evaluate" data-hint="hover the glass · click a trace as it passes through">
-        <div class="copy">
-          <p class="label">iter 002 · evaluate</p>
-          <h2>Evals are code you write once and run on every output.</h2>
-          <p>The traces stream through a sieve of small, deterministic checks: right shape, matches the reference, within budget. What passes collects on the far side; what fails falls away.</p>
-          <p class="reveal" data-reveal></p>
-        </div>
-      </section>
-      <section class="stage" id="refine" data-hint="rest the pointer on the slab to train · hover its edge">
-        <div class="copy">
-          <p class="label">iter 003 · refine</p>
-          <h2>Fine-tune on what passed, on hardware you own.</h2>
-          <p>A low-rank adapter trains on the pass set — hours on a single GPU, not days on a cluster. Terrain grows where the training lands. Nothing the model got wrong is rewarded; nothing leaves the box.</p>
-          <p class="reveal" data-reveal></p>
-        </div>
-      </section>
-      <section class="stage" id="ascend" data-hint="hover either body · click the candidate to run the gate">
-        <div class="copy">
-          <p class="label">iter 004 · ascend</p>
-          <h2>New weights ship only if they beat the old ones.</h2>
-          <p>Candidate and incumbent run the same held-out evals. If the candidate wins it becomes the model; if not it is discarded and the incumbent keeps flying. Either way the loop starts again with fresh traces.</p>
-          <p class="reveal" data-reveal></p>
-          <p class="go"><a class="cta magnet" href="/#waitlist">request access</a></p>
-        </div>
-      </section>
+    <p class="ui hint" id="hint" aria-live="polite"></p>
+    <button id="sound" class="ui magnet" type="button" aria-pressed="false" aria-label="Sound off">
+      <canvas class="wav" width="44" height="36" aria-hidden="true"></canvas>
+    </button>
+    <button class="arrow prev" type="button" aria-label="Previous move" hidden><i></i></button>
+    <button class="arrow next" type="button" aria-label="Next move" hidden><i></i></button>
+    <main id="main">
+      <nav id="carousel" aria-label="The loop"></nav>
+      <aside id="detail" aria-live="polite">
+        <p class="label"><span id="detail-index">iter 000</span> · <span id="detail-move">the loop</span></p>
+        <h1 id="detail-title" class="sr-only">How MARS works</h1>
+        <p id="detail-body"></p>
+        <p id="detail-meta" class="meta"></p>
+        <a class="cta magnet" href="/#waitlist">request access <span aria-hidden="true">↗</span></a>
+      </aside>
     </main>
     <script type="module" src="/src/how.ts"></script>
   </body>

@@ -47,6 +47,30 @@ export class Ambient {
     await this.context.resume();
     this.gain!.gain.setTargetAtTime(.9, this.context.currentTime, 1.2);
   }
+  /** Guillaume's break-click, synthesised: a stone crack (open) or a duller seal (close). Plays even when the drone is off, after a gesture. */
+  crack(open: boolean) {
+    const context = this.context ?? (this.context = new AudioContext());
+    if (context.state !== 'running') void context.resume();
+    const t = context.currentTime;
+    const out = context.createGain(); out.gain.value = open ? .55 : .35; out.connect(context.destination);
+    const length = Math.floor(context.sampleRate * (open ? .42 : .55));
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) {
+      const x = i / length;
+      const env = open ? Math.exp(-x * 14) * (1 + (Math.random() < .004 ? 6 : 0)) : Math.exp(-(1 - x) * 9) * .8 + Math.exp(-x * 30) * .4;
+      data[i] = (Math.random() * 2 - 1) * env;
+    }
+    const noise = context.createBufferSource(); noise.buffer = buffer;
+    const band = context.createBiquadFilter(); band.type = 'bandpass'; band.frequency.value = open ? 1900 : 520; band.Q.value = open ? .7 : 1.4;
+    noise.connect(band).connect(out); noise.start(t);
+    const thump = context.createOscillator(); thump.type = 'sine';
+    thump.frequency.setValueAtTime(open ? 140 : 90, t); thump.frequency.exponentialRampToValueAtTime(open ? 42 : 36, t + .35);
+    const thumpGain = context.createGain(); thumpGain.gain.setValueAtTime(.0001, t);
+    thumpGain.gain.exponentialRampToValueAtTime(open ? .9 : .5, t + .012); thumpGain.gain.exponentialRampToValueAtTime(.0001, t + (open ? .5 : .7));
+    thump.connect(thumpGain).connect(out); thump.start(t); thump.stop(t + .75);
+    thump.onended = () => { out.disconnect(); band.disconnect(); thumpGain.disconnect(); };
+  }
   /** Time-domain samples of what is playing (silence when off); drives the button's waveform. */
   waveform(): Float32Array | undefined {
     if (!this.on || !this.analyser) return undefined;
