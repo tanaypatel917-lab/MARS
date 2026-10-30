@@ -57,7 +57,7 @@ print(json.dumps({'inside': im.getpixel((round((b['left'] + 6) * 2), round((b['b
   await page.waitForFunction(() => document.body.dataset.intro === 'done', null, { timeout: 8000 });
   assert.equal(await page.locator('body').getAttribute('data-ui'), 'on');
   console.log('PASS: intro runs, locks scroll, then hands over to the page');
-  await page.locator('a.link').click();
+  await page.locator('a.link[href="#waitlist"]').click();
   await page.waitForFunction(() => document.querySelector('#waitlist').classList.contains('on'));
   await page.locator('button[type=submit]').click();
   assert.equal(await page.locator('#email').evaluate(e => e.validity.valueMissing), true);

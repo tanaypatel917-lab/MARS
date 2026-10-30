@@ -44,3 +44,15 @@ body[data-about=on] .panels,body[data-about=on] .hud,body[data-about=on] .rail{o
 .skip-link{position:fixed;z-index:20;left:20px;top:15px;transform:translateY(-200%);background:var(--bg);padding:14px}.skip-link:focus{transform:none}
 @media(max-width:700px){:root{--edge:18px;--bar:20px;--t-1:9px;--t0:9.5px;--t1:10px;--t2:14px}.rail{display:none}.hud{gap:10px;padding:0 var(--edge) 0 var(--edge);flex-direction:column;align-items:center;bottom:58px}.tag{min-width:0;text-align:center;max-width:80vw;line-height:1.5}#counter{min-width:0;text-align:center}#hint{display:none}.end{bottom:4vh}.end-copy{font-size:18px}body[data-end=on] .hud{opacity:0;transition:opacity .4s}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+
+.how{position:relative;z-index:4;padding:0 var(--edge);pointer-events:none}
+.chapter{min-height:100vh;max-width:36ch;display:flex;flex-direction:column;justify-content:center;padding:12vh 0;pointer-events:auto}
+.chapter .label{margin:0 0 18px;font:400 10px/1 'Commit Mono',monospace;letter-spacing:.06em;color:var(--muted)}
+.chapter h1,.chapter h2{margin:0 0 18px;font:500 clamp(22px,2.1vw,30px)/1.2 Switzer,sans-serif;letter-spacing:-.025em;color:var(--ink)}
+.chapter p{margin:0 0 14px;font-size:15px;line-height:1.55;color:#cfc9bf}.chapter p b{font-weight:400;color:var(--ink)}
+.chapter.on .word span{transform:none}
+.eval{margin:18px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:3px;font:400 11px/1.6 'Commit Mono',monospace;color:#cfc9bf;white-space:pre-wrap;overflow:hidden;opacity:0;transform:translateY(12px);transition:opacity .9s cubic-bezier(.625,.05,0,1) .3s,transform .9s cubic-bezier(.625,.05,0,1) .3s}
+.chapter.on .eval{opacity:1;transform:none}.eval i{font-style:normal;color:#8e8880}
+.chapter .cta{display:inline-block;margin-top:10px;padding:8px 0;font:400 11px/1 'Commit Mono',monospace;letter-spacing:.08em;color:var(--muted);border-bottom:1px solid var(--line);transition:color .3s}.chapter .cta:hover{color:var(--ink)}
+.link[aria-current=page]{color:var(--ink)}
+@media(max-width:700px){body[data-route=how] .hud{display:none}body[data-route=how] .corners{background:linear-gradient(var(--bg) 55%,transparent)}.chapter{max-width:none;min-height:auto;padding:46vh 0 8vh;justify-content:flex-end}.chapter:first-child{padding-top:54vh}.eval{font-size:10px}}
