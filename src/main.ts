@@ -179,7 +179,8 @@ function draw(now: number) {
     spin,
     light: Math.min(1, t / 2.2) * (pointer.seen ? 1 : .35),
     horizon: ease(progress, .84, .14),
-    word: ease(progress, .88, .12),
+    word: ease(progress, .86, .08) * (1 - ease(progress, .9, .1)),
+    morph: ease(progress, .9, .1),
     panels: views,
   };
   if (!document.hidden) scene?.render(state);
@@ -318,6 +319,8 @@ updateMotion();
 await document.fonts.ready;
 await document.fonts.load('500 380px Switzer').catch(() => undefined);
 scene?.setWordmark('MARS', "500 380px Switzer, 'General Sans', sans-serif");
+scene?.warm();
+if (scene) document.body.dataset.tier = scene.tier;
 const frames: Record<string, number> = { rest: 0, mid: .48, full: .72, close: .845, beauty: .97 };
 if (frame === 'intro' && !motion.matches) { introTime = 1.9; introFrozen = true; }
 else if (frame && Object.hasOwn(frames, frame)) jump(frames[frame]);

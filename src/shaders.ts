@@ -5,9 +5,17 @@ float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<5;i++){v+=a*vnoise(p);p=p*2.07+v
 float ridged(vec3 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*(1.-abs(vnoise(p)*2.-1.));p=p*2.1+vec3(3.3,1.1,7.7);a*=.5;}return v;}
 `;
 
+/** Body vertices can morph toward aTarget (a point inside the MARS wordmark) at the end of the scroll. */
 export const bodyVertex = /* glsl */`
-varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;varying vec2 vUv;
-void main(){vNormal=normalize(normalMatrix*normal);vObject=position;vUv=uv;vec4 mv=modelViewMatrix*vec4(position,1.);vView=mv.xyz;gl_Position=projectionMatrix*mv;}
+attribute vec3 aTarget;uniform float uMorph;uniform float uWordScale;
+varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;varying vec2 vUv;varying vec2 vWordUv;
+void main(){
+  float k=smoothstep(0.,1.,uMorph);
+  float arc=sin(k*3.14159);
+  vec3 p=mix(position,aTarget*uWordScale,k)+normal*arc*.18*(.6+.4*sin(position.y*9.+position.x*7.));
+  vec3 n=normalize(mix(normal,vec3(0.,0.,1.),k*.85));
+  vWordUv=vec2(.5+aTarget.x/7.2,.5+aTarget.y/1.8);
+  vNormal=normalize(normalMatrix*n);vObject=position;vUv=uv;vec4 mv=modelViewMatrix*vec4(p,1.);vView=mv.xyz;gl_Position=projectionMatrix*mv;}
 `;
 
 /** Thin sparse wireframe; back lines fade so the body still reads as a volume. */
@@ -82,10 +90,13 @@ void main(){float lon=(vUv.x-.5)*6.2831853;float lat=(vUv.y-.5)*3.1415926;vec3 s
 `;
 
 export const beautyFragment = /* glsl */`
+uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;
+#define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
+
 uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vObject;varying vec3 vView;
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
-void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
+void main(){MORPH_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
  vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
  float e=.004;vec3 m0=texture2D(tTerrain,toUv(s)).rgb;float h0=m0.r;float hx=texture2D(tTerrain,toUv(normalize(s+t*e))).r;float hy=texture2D(tTerrain,toUv(normalize(s+b*e))).r;
  vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.);
@@ -104,8 +115,11 @@ void main(){vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normaliz
 
 /** A slightly larger back-facing shell that gives the beauty pass its blue limb. */
 export const atmosphereFragment = /* glsl */`
+uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;
+#define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
+
 uniform float uFade;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
-void main(){vec3 n=normalize(vNormal);float inward=clamp(abs(dot(n,normalize(-vView)))/.24,0.,1.);float band=inward*inward*inward;
+void main(){MORPH_CUT vec3 n=normalize(vNormal);float inward=clamp(abs(dot(n,normalize(-vView)))/.24,0.,1.);float band=inward*inward*inward;
  vec3 c=mix(vec3(.2,.36,1.),vec3(.5,.3,.95),smoothstep(-.5,.7,n.y));float light=.12+.88*max(0.,dot(n,normalize(uKey)));
  gl_FragColor=vec4(c*band*light*uFade*.9,1.);}
 `;
@@ -133,7 +147,10 @@ void main(){vec2 d=vUv-uPointer;d.x*=uAspect;float r=length(d);
  c+=(h2(gl_FragCoord.xy+floor(uTime*9.)*.37)-.5)*.022;gl_FragColor=vec4(max(c,0.),1.);}
 `;
 
-export const maskFragment = /* glsl */`void main(){gl_FragColor=vec4(1.);}`;
+export const maskFragment = /* glsl */`
+uniform sampler2D tWord;uniform float uMorph;varying vec2 vWordUv;
+#define MORPH_CUT if(uMorph>.02){float inside=texture2D(tWord,vWordUv).r;if(inside<smoothstep(.5,1.,uMorph)*.985)discard;}
+void main(){MORPH_CUT gl_FragColor=vec4(1.);}`;
 
 /** Hairline silhouette from the mask, revealed by an angular sweep during the intro. */
 export const outlineFragment = /* glsl */`
