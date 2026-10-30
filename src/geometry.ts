@@ -26,25 +26,71 @@ export function fbm(x: number, y: number, z: number, octaves = 4) {
   return value;
 }
 
-/** A slightly irregular planet: a superellipsoid-shaped sphere with low-frequency relief, in the spirit of Guillaume's runtime stone builder. */
+interface Facet { n: THREE.Vector3; d: number }
+/** Elongation of the shard: a flat-ish meteorite, longer than it is tall. */
+const STRETCH = new THREE.Vector3(1.06, .76, .84);
+const SEED = 7.3;
+let facets: Facet[] | undefined;
+let fractures: Facet[] | undefined;
+function planes(count: number, salt: number, near: number, far: number) {
+  const out: Facet[] = [];
+  for (let k = 0; k < count; k++) {
+    const u = hash(k * 1.1 + salt, SEED, 3.3) * 2 - 1, a = hash(k * 2.7 + salt, SEED, 9.1) * Math.PI * 2, s = Math.sqrt(1 - u * u);
+    out.push({ n: new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)), d: near + hash(k * 3.9 + salt, SEED, 1.7) * (far - near) });
+  }
+  return out;
+}
+
+/**
+ * The hero body is a fractured Martian shard rather than a sphere: the radial intersection of ~16 random half-spaces gives
+ * large flat facets with sharp ridges, the underside is worn back toward a rounded form, three fracture grooves cut across
+ * the facets and low-frequency fbm adds wear. Evaluated radially so a tessellated sphere maps onto it one-to-one.
+ */
+export function shardPoint(dir: THREE.Vector3, out = new THREE.Vector3()) {
+  facets ??= planes(16, 0, .78, .98);
+  fractures ??= planes(3, 40, -.25, .25);
+  let r = 10, best = facets[0];
+  for (const f of facets) {
+    const k = dir.dot(f.n);
+    if (k > 1e-3) { const t = f.d / k; if (t < r) { r = t; best = f; } }
+  }
+  r = Math.min(r, 1.25);
+  const worn = fade(THREE.MathUtils.clamp((-.05 - dir.y) / .6, 0, 1));
+  r = THREE.MathUtils.lerp(r, .9, worn * .55);
+  out.copy(dir).multiplyScalar(r);
+  for (const f of fractures) {
+    const g = Math.exp(-Math.pow(out.dot(f.n) - f.d, 2) / .0012);
+    r *= 1 - .05 * g * (1 - worn);
+  }
+  r *= 1 + fbm(dir.x * 2.2 + 3.1, dir.y * 2.2, dir.z * 2.2, 3) * .03 + fbm(dir.x * 7 + 9, dir.y * 7, dir.z * 7, 3) * .008;
+  out.copy(dir).multiplyScalar(r).multiply(STRETCH);
+  (out as THREE.Vector3 & { facet?: Facet }).facet = best;
+  return out;
+}
+
+/** The shard as a tessellated sphere remapped onto shardPoint, with normals pulled toward the owning facet so ridges stay crisp. */
 export function planetGeometry(detail: number) {
   const geometry = mergeVertices(new THREE.IcosahedronGeometry(1, detail), 1e-5);
   const position = geometry.attributes.position as THREE.BufferAttribute;
-  const v = new THREE.Vector3();
+  const v = new THREE.Vector3(), p = new THREE.Vector3();
+  const owners: THREE.Vector3[] = [];
   for (let i = 0; i < position.count; i++) {
     v.fromBufferAttribute(position, i).normalize();
-    const power = 2.3;
-    const sx = Math.sign(v.x) * Math.pow(Math.abs(v.x), 2 / power);
-    const sy = Math.sign(v.y) * Math.pow(Math.abs(v.y), 2 / power);
-    const sz = Math.sign(v.z) * Math.pow(Math.abs(v.z), 2 / power);
-    const shape = new THREE.Vector3(sx, sy, sz).normalize();
-    const blend = v.clone().lerp(shape, .35).normalize();
-    const relief = fbm(blend.x * 1.6 + 3.1, blend.y * 1.6, blend.z * 1.6, 3) * .045 + fbm(blend.x * 5 + 9, blend.y * 5, blend.z * 5, 3) * .012;
-    blend.multiplyScalar(1 + relief);
-    blend.x *= 1.0; blend.y *= 1.07; blend.z *= .985;
-    position.setXYZ(i, blend.x, blend.y, blend.z);
+    shardPoint(v, p);
+    owners.push((p as THREE.Vector3 & { facet?: Facet }).facet!.n);
+    position.setXYZ(i, p.x, p.y, p.z);
   }
   geometry.computeVertexNormals();
+  const normal = geometry.attributes.normal as THREE.BufferAttribute;
+  const n = new THREE.Vector3(), f = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    n.fromBufferAttribute(normal, i);
+    f.copy(owners[i]).divide(STRETCH).normalize();
+    v.fromBufferAttribute(position, i).divide(STRETCH).normalize();
+    const worn = fade(THREE.MathUtils.clamp((-.05 - v.y) / .6, 0, 1));
+    n.lerp(f, .6 * (1 - worn)).normalize();
+    normal.setXYZ(i, n.x, n.y, n.z);
+  }
   const uv = new Float32Array(position.count * 2);
   for (let i = 0; i < position.count; i++) {
     v.fromBufferAttribute(position, i).normalize();
@@ -75,7 +121,7 @@ export function wireGeometry(points: number) {
   for (let i = 0; i < count; i++) {
     if (i % 2 === 0) {
       const jitter = hash(Math.round(p.getX(i) * 97 + p.getX(i + 1) * 31), Math.round(p.getY(i) * 57 + p.getY(i + 1) * 13), Math.round(p.getZ(i) * 71));
-      const top = 1 - ((p.getY(i) + p.getY(i + 1)) * .5 + 1.1) / 2.2;
+      const top = 1 - ((p.getY(i) + p.getY(i + 1)) * .5 + .95) / 1.9;
       const value = Math.min(1, top * .7 + jitter * .3);
       seed[i] = value; seed[i + 1] = value;
     }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as shader from './shaders';
-import { fbm, planetGeometry, wireGeometry } from './geometry';
+import { fbm, planetGeometry, shardPoint, wireGeometry } from './geometry';
 
 export type Pass = 'wireframe' | 'observe' | 'evaluate' | 'refine' | 'beauty';
 /** A panel's inner viewport in CSS pixels, measured from the top-left of the page. */
@@ -93,7 +93,7 @@ export class MarsScene {
     this.dprCap = q.dpr; this.pixelBudget = q.budget;
     const body = planetGeometry(q.detail);
     const wire = wireGeometry(q.wire);
-    const shell = body.clone().scale(1.03, 1.03, 1.03);
+    const shell = body.clone().scale(1.018, 1.018, 1.018);
     this.bodyGeometries.push(body, shell);
     for (const g of this.bodyGeometries) {
       g.setAttribute('aTarget', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
@@ -133,11 +133,12 @@ export class MarsScene {
     this.twin = new THREE.LineSegments(wire, this.wire);
     this.twinScene.add(this.twin);
     const count = mobile ? 900 : 2000;
-    const dirs = new Float32Array(count * 3), tangents = new Float32Array(count * 3), seeds = new Float32Array(count), passed = new Float32Array(count);
-    const dir = new THREE.Vector3(), tangent = new THREE.Vector3(), up = new THREE.Vector3();
+    const dirs = new Float32Array(count * 3), lands = new Float32Array(count * 3), tangents = new Float32Array(count * 3), seeds = new Float32Array(count), passed = new Float32Array(count);
+    const dir = new THREE.Vector3(), land = new THREE.Vector3(), tangent = new THREE.Vector3(), up = new THREE.Vector3();
     for (let i = 0; i < count; i++) {
       const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
       dir.set(s * Math.cos(a), u, s * Math.sin(a)).toArray(dirs, i * 3);
+      shardPoint(dir, land).toArray(lands, i * 3);
       tangent.crossVectors(dir, Math.abs(u) < .9 ? up.set(0, 1, 0) : up.set(1, 0, 0)).normalize().toArray(tangents, i * 3);
       seeds[i] = Math.random();
       passed[i] = Math.random() < .72 ? 1 : 0;
@@ -145,10 +146,11 @@ export class MarsScene {
     const traceGeometry = new THREE.BufferGeometry();
     traceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
     traceGeometry.setAttribute('aDir', new THREE.BufferAttribute(dirs, 3));
+    traceGeometry.setAttribute('aLand', new THREE.BufferAttribute(lands, 3));
     traceGeometry.setAttribute('aTangent', new THREE.BufferAttribute(tangents, 3));
     traceGeometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
     traceGeometry.setAttribute('aPass', new THREE.BufferAttribute(passed, 1));
-    this.traces = new THREE.ShaderMaterial({ vertexShader: shader.tracesVertex, fragmentShader: shader.tracesFragment, uniforms: { uFall: { value: 0 }, uScore: { value: 0 }, uSink: { value: 0 }, uTime: { value: 0 }, uDpr: { value: 1 }, uRadius: { value: 1.085 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    this.traces = new THREE.ShaderMaterial({ vertexShader: shader.tracesVertex, fragmentShader: shader.tracesFragment, uniforms: { uFall: { value: 0 }, uScore: { value: 0 }, uSink: { value: 0 }, uTime: { value: 0 }, uDpr: { value: 1 }, uRadius: { value: .72 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     const points = new THREE.Points(traceGeometry, this.traces);
     points.frustumCulled = false;
     this.tracesScene.add(points);

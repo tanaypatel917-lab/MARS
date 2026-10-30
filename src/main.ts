@@ -28,8 +28,8 @@ const CLOSE_START = .78;
 /** Panel rects in planet units: offsets from the planet centre and sizes as multiples of its on-screen radius, so the composition survives any viewport. */
 const layout: Omit<Panel, 'open' | 'element'>[] = [
   { pass: 'wireframe', label: 'iter 000 · wireframe', x: -.85, y: -.81, w: 1.6, h: 1.375 },
-  { pass: 'observe', label: 'iter 001 · observe', x: -.75, y: .31, w: .95, h: 1.0 },
-  { pass: 'evaluate', label: 'iter 002 · evaluate', x: -.6, y: -1.5, w: 1.4, h: .81 },
+  { pass: 'observe', label: 'iter 001 · observe', x: -.75, y: .28, w: .95, h: .9 },
+  { pass: 'evaluate', label: 'iter 002 · evaluate', x: -.6, y: -1.2, w: 1.4, h: .81 },
   { pass: 'refine', label: 'iter 003 · refine', x: -1.4, y: -.78, w: 1.25, h: .81 },
   { pass: 'beauty', label: 'iter 004 · beauty', x: -.15, y: -.44, w: 1.1, h: .75 },
   { pass: 'beauty', label: 'iter 004 · beauty', x: .58, y: -.91, w: 1.8, h: 1.69 },

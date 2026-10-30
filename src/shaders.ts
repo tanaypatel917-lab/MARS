@@ -204,14 +204,14 @@ void main(){float eG=edgeAt(vUv);float eR=abs(uSplit)>1e-5?edgeAt(vUv+vec2(uSpli
  * with a view-space disc test so the system needs no depth from the other passes.
  */
 export const tracesVertex = /* glsl */`
-attribute vec3 aDir;attribute vec3 aTangent;attribute float aSeed;attribute float aPass;
+attribute vec3 aDir;attribute vec3 aLand;attribute vec3 aTangent;attribute float aSeed;attribute float aPass;
 uniform float uFall;uniform float uScore;uniform float uSink;uniform float uTime;uniform float uDpr;uniform float uRadius;
 varying float vAlpha;varying float vPass;varying float vHot;
 void main(){
   float fall=clamp((uFall-aSeed*.75)/.25,0.,1.);float ef=1.-pow(1.-fall,3.);
   float score=clamp((uScore-aSeed*.6)/.4,0.,1.);
   float fail=(1.-aPass)*score;
-  vec3 p=aDir*mix(2.7,uRadius,ef)+aTangent*fail*1.7+aDir*fail*.6;
+  vec3 p=mix(aDir*2.7,aLand*1.04,ef)+aTangent*fail*1.7+aDir*fail*.6;
   p+=aTangent*sin(uTime*.9+aSeed*40.)*.004*(1.-ef);
   float hot=aPass*smoothstep(0.,.12,score)*(1.-smoothstep(.12,1.,score));
   float alpha=fall*(1.-fail)*(1.-aPass*uSink);
