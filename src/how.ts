@@ -178,8 +178,16 @@ addEventListener('pointermove', e => {
   cursor.style.opacity = fine ? '1' : '0';
   pick();
 }, { passive: true });
+// a tap opens the stone; a swipe that happens to start on it only turns the carousel
+let down: { x: number; y: number; t: number } | null = null;
 addEventListener('pointerdown', e => {
-  if ((e.target as Element | null)?.closest('a, button, #detail, #carousel')) return;
+  down = (e.target as Element | null)?.closest('a, button, #detail, #carousel') ? null : { x: e.clientX, y: e.clientY, t: performance.now() };
+});
+addEventListener('pointerup', e => {
+  if (!down) return;
+  const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 10 && performance.now() - down.t < 600;
+  down = null;
+  if (!tap) return;
   pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
   pick();
   if (!open && hit) setOpen(true);

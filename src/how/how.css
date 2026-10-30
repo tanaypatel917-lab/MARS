@@ -20,3 +20,6 @@ body[data-route=how] .link:hover::before,body[data-route=how] .link:hover::after
 body[data-route=how] .link:hover::before,body[data-route=how] .link:focus-visible::before{transform:translate(-.5px,-1.1px) rotate(-1.2deg)}
 body[data-route=how] .link:hover::after,body[data-route=how] .link:focus-visible::after{transform:translate(.5px,1.1px) rotate(.8deg)}
 @media(max-width:700px){.hint{bottom:calc(4vh + 70px)}}
+
+/* the detail copy overlaps the left neighbour title: let clicks through to it, keep the CTA clickable */
+body[data-route=how] #detail{pointer-events:none}body[data-route=how] #detail a{pointer-events:auto}
