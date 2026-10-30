@@ -68,7 +68,7 @@ function scramble(element: HTMLElement, text: string, duration = .5) {
 }
 
 try {
-  scene = new MarsScene(canvas);
+  scene = new MarsScene(canvas, 'shard');
   document.body.dataset.renderer = 'ready';
 } catch (error) {
   console.warn('MARS: WebGL unavailable, showing the outline only.', error);

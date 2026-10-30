@@ -26,6 +26,21 @@ export function fbm(x: number, y: number, z: number, octaves = 4) {
   return value;
 }
 
+/** The two hero bodies: the real Mars on the home page, the fractured shard on /how. */
+export type Body = 'planet' | 'shard';
+
+/** The planet: a superellipsoid-shaped sphere with low-frequency relief, in the spirit of Guillaume's runtime stone builder. */
+export function planetPoint(dir: THREE.Vector3, out = new THREE.Vector3()) {
+  const power = 2.3;
+  const shape = new THREE.Vector3(Math.sign(dir.x) * Math.pow(Math.abs(dir.x), 2 / power), Math.sign(dir.y) * Math.pow(Math.abs(dir.y), 2 / power), Math.sign(dir.z) * Math.pow(Math.abs(dir.z), 2 / power)).normalize();
+  out.copy(dir).lerp(shape, .35).normalize();
+  const relief = fbm(out.x * 1.6 + 3.1, out.y * 1.6, out.z * 1.6, 3) * .045 + fbm(out.x * 5 + 9, out.y * 5, out.z * 5, 3) * .012;
+  out.multiplyScalar(1 + relief);
+  out.y *= 1.07; out.z *= .985;
+  return out;
+}
+export const bodyPoint = (body: Body, dir: THREE.Vector3, out = new THREE.Vector3()) => body === 'shard' ? shardPoint(dir, out) : planetPoint(dir, out);
+
 interface Facet { n: THREE.Vector3; d: number }
 /** Elongation of the shard: a flat-ish meteorite, longer than it is tall. */
 const STRETCH = new THREE.Vector3(1.06, .76, .84);
@@ -68,22 +83,22 @@ export function shardPoint(dir: THREE.Vector3, out = new THREE.Vector3()) {
   return out;
 }
 
-/** The shard as a tessellated sphere remapped onto shardPoint, with normals pulled toward the owning facet so ridges stay crisp. */
-export function planetGeometry(detail: number) {
+/** The body as a tessellated sphere remapped onto bodyPoint; shard normals are pulled toward the owning facet so ridges stay crisp. */
+export function planetGeometry(detail: number, body: Body = 'planet') {
   const geometry = mergeVertices(new THREE.IcosahedronGeometry(1, detail), 1e-5);
   const position = geometry.attributes.position as THREE.BufferAttribute;
   const v = new THREE.Vector3(), p = new THREE.Vector3();
   const owners: THREE.Vector3[] = [];
   for (let i = 0; i < position.count; i++) {
     v.fromBufferAttribute(position, i).normalize();
-    shardPoint(v, p);
-    owners.push((p as THREE.Vector3 & { facet?: Facet }).facet!.n);
+    bodyPoint(body, v, p);
+    if (body === 'shard') owners.push((p as THREE.Vector3 & { facet?: Facet }).facet!.n);
     position.setXYZ(i, p.x, p.y, p.z);
   }
   geometry.computeVertexNormals();
   const normal = geometry.attributes.normal as THREE.BufferAttribute;
   const n = new THREE.Vector3(), f = new THREE.Vector3();
-  for (let i = 0; i < position.count; i++) {
+  for (let i = 0; i < owners.length; i++) {
     n.fromBufferAttribute(normal, i);
     f.copy(owners[i]).divide(STRETCH).normalize();
     v.fromBufferAttribute(position, i).divide(STRETCH).normalize();
@@ -102,8 +117,8 @@ export function planetGeometry(detail: number) {
 }
 
 /** Sparse, irregular wireframe of the same body (a convex hull over seeded surface points), with a per-edge seed so lines can be revealed progressively. */
-export function wireGeometry(points: number) {
-  const base = planetGeometry(36);
+export function wireGeometry(points: number, body: Body = 'planet') {
+  const base = planetGeometry(36, body);
   const position = base.attributes.position as THREE.BufferAttribute;
   const samples: THREE.Vector3[] = [];
   for (let i = 0; i < points; i++) {
