@@ -1,18 +1,17 @@
 import './style.css';
+import './how/carousel.css';
+import './how/how.css';
 import gsap from 'gsap';
 import { CustomEase } from 'gsap/CustomEase';
-import Lenis from 'lenis';
 import * as THREE from 'three';
 import { HowWorld, type Hit, type WorldState } from './how/world';
-import { Simulation, type Trace, type Verdict } from './how/scorer';
-import { Odometer } from './how/odometer';
+import { Carousel } from './how/carousel';
+import { FOG } from './how/landscape';
+import type { PassIndex } from './how/passes';
 
 gsap.registerPlugin(CustomEase);
-/** Lusion's section ease (ease.lusion = cubicBezier(.35, 0, 0, 1)); osmo for window pops. */
 const lusion = CustomEase.create('lusion', '0.35, 0, 0, 1');
 const osmo = CustomEase.create('osmo', '0.625, 0.05, 0, 1');
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const clamp01 = (value: number) => clamp(value, 0, 1);
 const select = <T extends Element = HTMLElement>(selector: string, root: ParentNode = document) => {
   const element = root.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
@@ -33,180 +32,162 @@ class Dynamics {
   get value() { return this.y; }
 }
 
-const MOVES = ['observe', 'evaluate', 'refine', 'ascend'];
-const MOVE_LINES = ['traces from where the work already happens', 'checks you write as code, run on every output', 'a low-rank adapter trained on what passed', 'ship only if the candidate beats the incumbent'];
-const TASKS = ['triage inbound tickets', 'draft the weekly report', 'reconcile invoices', 'label support chats', 'route the on-call page', 'summarise the standup', 'fill the CRM', 'review a pull request'];
-const THRESHOLD = 800;
+interface Move { title: string; label: string; body: string; meta: string }
+const MOVES: Move[] = [
+  { title: 'THE\nLOOP', label: 'the loop', body: 'One open-weights model, pointed at the tasks your team already runs. Four moves — observe, evaluate, refine, ascend — repeated until day 100 beats day 1.', meta: 'inside the stone: the model as it ships today' },
+  { title: 'OBSERVE', label: 'observe', body: 'Every run of your workflow becomes a trace: the input, the tool calls, the output, the latency. Collected where the work already happens, kept on your machines.', meta: '2 000 traces · a drop-in SDK or a local proxy' },
+  { title: 'EVALUATE', label: 'evaluate', body: 'Evals are code you write once and run on every output: right shape, matches the reference, within budget. What passes collects; what fails falls away.', meta: 'pass 0 720 / 1 000 · deterministic checks' },
+  { title: 'REFINE', label: 'refine', body: 'A low-rank adapter is trained on what passed — on hardware you own, inside a time and memory envelope you set. The weights grow where the passes landed.', meta: '04h 12m · 19.4 GB · one 24 GB GPU' },
+  { title: 'ASCEND', label: 'ascend', body: 'The candidate meets the incumbent on a held-out set. It ships only if it wins; otherwise it is discarded and the loop goes again. Rollback is one commit.', meta: 'candidate 77 % vs incumbent 58 % · shipped' },
+];
+const HINTS = ['scroll to turn · hover the stone · click to open', 'scroll to turn · click to open', 'click to open', 'click to open', 'click to open'];
 
-const motion = matchMedia('(prefers-reduced-motion: reduce)');
-const fine = matchMedia('(pointer: fine)');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fine = matchMedia('(pointer: fine)').matches;
 const mobile = innerWidth < 700;
+const params = new URLSearchParams(location.search);
 const canvas = select<HTMLCanvasElement>('#scene');
-const panels = select('.panels');
-const stages = [...document.querySelectorAll<HTMLElement>('.stage')];
-const reveals = stages.map(s => select('[data-reveal]', s));
-const counter = select('#counter');
-const tag = select('.tag');
-const railFill = select('.rail i');
 const cursor = select('#cursor');
-const odometer = new Odometer(counter, 4);
-const unit = document.createElement('span'); unit.className = 'unit'; counter.appendChild(unit);
+const hint = select('#hint');
+const closeButton = select<HTMLButtonElement>('#close');
+const links = select('header .links');
+const prevButton = select<HTMLButtonElement>('.arrow.prev');
+const nextButton = select<HTMLButtonElement>('.arrow.next');
+const detail = select('#detail');
+const detailIndex = select('#detail-index'), detailMove = select('#detail-move'), detailBody = select('#detail-body'), detailMeta = select('#detail-meta');
+const body = document.body;
+const d = (seconds: number) => reduced ? 0 : seconds;
 
 let world: HowWorld | null = null;
-try { world = new HowWorld(canvas, mobile); } catch { select('#fallback').hidden = false; canvas.remove(); }
+try { world = new HowWorld(canvas, mobile); } catch (error) { console.warn('WebGL unavailable', error); select('#fallback').hidden = false; }
+body.dataset.renderer = world ? 'ready' : 'fallback';
+body.dataset.intro = 'done';
+body.dataset.ui = 'on';
 
-const sim = new Simulation();
-const traces: Trace[] = world ? Array.from({ length: world.traceCount }, (_, i) => ({ id: i, ms: world!.traceMs(i), label: TASKS[i % TASKS.length] })) : [];
-let verdict: Verdict = sim.score(traces, THRESHOLD) as Verdict;
-
-// --- state the world renders
-const state: WorldState = { time: 0, progress: 0, pointer: { x: 0, y: 0 }, fieldSpin: 0, threshold: THRESHOLD, growth: 0, contour: null, candidateOrbit: 0, candidateOffset: null, shatter: 0, flare: 0, engrave: 0, facet: -1, crack: 0, fade: 0 };
-const spin = new Dynamics(0, 1.2, .9, 1.5);
-const engrave = new Dynamics(0, 2, 1, 0);
-let spinTarget = 0, hours = 0, candidate = 0, gate: 'idle' | 'running' | 'merged' | 'rejected' = 'idle', cracked = false;
-const pointer = { x: 0, y: 0, nx: 0, ny: 0, down: false, dragging: false, lastX: 0 };
-
-// --- scroll → progress (Lusion: each section's object is bound to its DOM range; the camera yaws 90° per section)
-const lenis = motion.matches ? null : new Lenis({ lerp: .08, wheelMultiplier: .9 });
-const progressNow = () => {
-  let p = 0;
-  for (let i = 1; i < stages.length; i++) { const top = stages[i].getBoundingClientRect().top; p += lusion(clamp01((innerHeight * .9 - top) / (innerHeight * .8))); }
-  return p;
+const carousel = new Carousel(select('#carousel'), MOVES.map(m => m.title), { reducedMotion: reduced });
+const state: WorldState = {
+  time: 0, position: 0, pass: 0, blend: 1, pointer: { x: 0, y: 0 }, tilt: { x: 0, y: 0 },
+  facet: -1, lift: 0, explode: 0, reveal: 0, core: 0, fade: 1,
 };
+const tiltX = new Dynamics(0, 1.2, .75), tiltY = new Dynamics(0, 1.2, .75);
+const fog = new THREE.Color(FOG[0]);
+if (world) world.landscape.fog.copy(fog);
+let open = false, hit: Hit | null = null, lastMove = -1;
+const pointer = { x: innerWidth / 2, y: innerHeight / 2, nx: 0, ny: 0, moved: false };
 
-// --- one window, Guillaume chrome, anchored to whatever is under the pointer
-const panel = document.createElement('div'); panel.className = 'panel how-panel'; panel.hidden = true;
-panel.innerHTML = '<div class="bar"><i></i><i></i><i></i><span></span></div><div class="pane"></div>';
-panels.appendChild(panel);
-const panelLabel = select('.bar span', panel), pane = select('.pane', panel);
-let panelShown = false, holdUntil = 0;
-const showPanel = (x: number, y: number, label: string, html: string) => {
-  panelLabel.textContent = label; pane.innerHTML = html;
-  panel.style.transform = `translate(${Math.round(clamp(x + 22, 12, innerWidth - 260))}px, ${Math.round(clamp(y - 18, 12, innerHeight - 140))}px)`;
-  if (!panelShown) { panelShown = true; panel.hidden = false; gsap.fromTo(panel, { scale: .72, opacity: 0 }, { scale: 1, opacity: 1, duration: .55, ease: 'back.out(1.7)', overwrite: true }); }
+/** Text for the current move; swaps with a short fade while open. */
+const describe = (i: number) => {
+  const move = MOVES[i];
+  detailIndex.textContent = i === 0 ? 'iter 000' : `iter 00${i}`;
+  detailMove.textContent = move.label;
+  detailBody.textContent = move.body;
+  detailMeta.textContent = move.meta;
+  hint.textContent = HINTS[i];
 };
-const hidePanel = () => { if (!panelShown) return; panelShown = false; gsap.to(panel, { opacity: 0, scale: .9, duration: .25, ease: osmo, overwrite: true, onComplete: () => { panel.hidden = true; } }); };
-// the four move windows that the crack reveals
-const crackPanels = MOVES.map((move, i) => { const el = document.createElement('div'); el.className = 'panel how-panel crack'; el.hidden = true; el.innerHTML = `<div class="bar"><i></i><i></i><i></i><span>iter 00${i + 1} · ${move}</span></div><div class="pane">${MOVE_LINES[i]}</div>`; panels.appendChild(el); return el; });
-const CRACK_ANCHORS = [new THREE.Vector3(-.95, .55, .7), new THREE.Vector3(.9, .7, .5), new THREE.Vector3(-.8, -.75, .6), new THREE.Vector3(.95, -.6, .6)];
-
-const fmt = { ms: (v: number) => `${Math.round(v)} ms`, pct: (v: number) => `${Math.round(v * 100)} %`, hours: (h: number) => `${String(Math.floor(h)).padStart(2, '0')}h ${String(Math.round((h % 1) * 60)).padStart(2, '0')}m` };
-const setReveal = (i: number, text: string) => { if (reveals[i].textContent !== text) { reveals[i].textContent = text; gsap.fromTo(reveals[i], { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: .6, ease: osmo, overwrite: true }); } };
-
-// --- interactions per scene
-let hit: Hit | null = null;
-const section = () => { const r = Math.round(state.progress); return Math.abs(state.progress - r) < .4 ? r : -1; };
-const handleHover = (dt: number) => {
-  const s = section();
-  hit = world && s >= 0 && !pointer.dragging ? world.pick(s, pointer.nx, pointer.ny) : null;
-  state.facet = -1; state.contour = null;
-  document.body.classList.toggle('over', !!hit);
-  if (!hit) { if (s !== 3 || !pointer.down) engrave.update(dt, s === 2 && state.engrave > .5 ? 1 : 0); if (performance.now() > holdUntil) hidePanel(); state.engrave = engrave.value; return; }
-  const at = world!.project(hit.point);
-  if (s === 0) {
-    state.facet = hit.facet;
-    const move = hit.facet % 4;
-    showPanel(at.x, at.y, `facet ${String(hit.facet).padStart(2, '0')} · ${MOVES[move]}`, `${MOVE_LINES[move]}<br><i>${cracked ? 'click to seal it' : 'click to crack it open'}</i>`);
-  } else if (s === 1) {
-    const t = traces[hit.index], pass = t.ms < THRESHOLD;
-    showPanel(at.x, at.y, `trace ${String(t.id).padStart(4, '0')}`, `${t.label}<br>${fmt.ms(t.ms)} · ${pass ? 'within budget' : 'over budget'}<br><i>drag to turn the field</i>`);
-    setReveal(1, `${traces.length} traces. this one: "${t.label}", ${fmt.ms(t.ms)}.`);
-  } else if (s === 2) {
-    state.engrave = engrave.update(dt, 1);
-    if (performance.now() > holdUntil) showPanel(at.x, at.y, 'evals/triage.ts', `${verdict.passed.length} of ${traces.length} pass at ${fmt.ms(THRESHOLD)} · ${fmt.pct(verdict.rate)}<br><i>click to score a trace as it passes</i>`);
-  } else if (s === 3) {
-    const l = hit.local.clone().normalize();
-    state.contour = { x: l.x, y: l.y, z: l.z, r: .55 };
-    hours = Math.min(12, hours + dt * 1.2); state.growth = Math.min(1, hours / 6);
-    showPanel(at.x, at.y, 'iter 003 · training', `${fmt.hours(hours)} · ${(12.8 + state.growth * 9.4).toFixed(1)} GB<br><i>keep the pointer here to train</i>`);
-    setReveal(3, `${fmt.hours(hours)} on one GPU so far. terrain grows where the training lands.`);
-  } else if (s === 4) {
-    candidate = sim.train(verdict, hours) as number;
-    const isCandidate = hit.index === 0;
-    showPanel(at.x, at.y, isCandidate ? 'candidate · wireframe' : 'incumbent · shipped', isCandidate ? `pass rate ${fmt.pct(candidate)} on held-out evals<br><i>${gate === 'idle' ? 'click to run the gate' : 'gate ' + gate}</i>` : `pass rate ${fmt.pct(sim.incumbent)}<br>${gate === 'merged' ? 'the candidate is the model now' : 'the model your team runs today'}`);
+const retint = (i: number) => {
+  gsap.to(fog, { r: new THREE.Color(FOG[i]).r, g: new THREE.Color(FOG[i]).g, b: new THREE.Color(FOG[i]).b, duration: d(1.1), ease: lusion, overwrite: true,
+    onUpdate: () => world?.landscape.fog.copy(fog) });
+};
+const onMove = (i: number) => {
+  if (i === lastMove) return;
+  const previous = lastMove; lastMove = i;
+  retint(i);
+  if (world && open && previous >= 0) {
+    world.passes.setPrevious(previous as PassIndex);
+    state.pass = i as PassIndex; state.blend = 0;
+    gsap.to(state, { blend: 1, duration: d(1), ease: lusion, overwrite: 'auto' });
+    gsap.timeline().to(detail, { opacity: 0, y: 8, duration: d(.25), ease: 'power2.in' }).add(() => describe(i)).to(detail, { opacity: 1, y: 0, duration: d(.5), ease: osmo });
+  } else {
+    state.pass = i as PassIndex; state.blend = 1; describe(i);
   }
-  if (s !== 2) state.engrave = engrave.update(dt, 0);
+  prevButton.disabled = i === 0; nextButton.disabled = i === MOVES.length - 1;
 };
-const crack = () => {
-  cracked = !cracked;
-  gsap.to(state, { crack: cracked ? 1 : 0, duration: .9, ease: cracked ? 'back.out(1.4)' : osmo, overwrite: true });
-  crackPanels.forEach((el, i) => { if (cracked) { el.hidden = false; gsap.fromTo(el, { opacity: 0, scale: .7 }, { opacity: 1, scale: 1, duration: .6, delay: .08 + i * .07, ease: 'back.out(1.7)', overwrite: true }); } else gsap.to(el, { opacity: 0, scale: .85, duration: .3, delay: (3 - i) * .04, ease: osmo, overwrite: true, onComplete: () => { el.hidden = true; } }); });
-  setReveal(0, cracked ? 'four moves inside one body. scroll to walk through them.' : '');
+carousel.onChange(onMove);
+
+const setOpen = (next: boolean) => {
+  if (next === open) return;
+  open = next;
+  body.dataset.open = open ? 'on' : 'off';
+  body.classList.toggle('open', open);
+  closeButton.hidden = !open; prevButton.hidden = !open; nextButton.hidden = !open;
+  gsap.to(links, { opacity: open ? 0 : 1, duration: d(.4), ease: 'power2.out', overwrite: true, onComplete: () => { links.style.pointerEvents = open ? 'none' : ''; } });
+  gsap.killTweensOf(state, 'explode,core,reveal,lift');
+  if (open) {
+    state.facet = -1;
+    gsap.timeline({ defaults: { overwrite: 'auto' } })
+      .to(state, { lift: 0, duration: d(.2) }, 0)
+      .to(state, { explode: 1, duration: d(1.25), ease: 'back.out(1.25)' }, 0)
+      .to(state, { core: 1, duration: d(.9), ease: 'power2.out' }, d(.15))
+      .to(state, { reveal: 1, duration: d(1.1), ease: 'power2.inOut' }, d(.45))
+      .fromTo(detail, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: d(.8), ease: osmo }, d(.55))
+      .fromTo([closeButton, prevButton, nextButton], { opacity: 0 }, { opacity: 1, duration: d(.5), stagger: .05 }, d(.5));
+    if (fine) closeButton.focus({ preventScroll: true });
+  } else {
+    gsap.timeline({ defaults: { overwrite: 'auto' } })
+      .to(detail, { opacity: 0, y: 12, duration: d(.3), ease: 'power2.in' }, 0)
+      .to([closeButton, prevButton, nextButton], { opacity: 0, duration: d(.25) }, 0)
+      .to(state, { reveal: 0, duration: d(.5), ease: 'power2.in' }, 0)
+      .to(state, { core: 0, duration: d(.7), ease: 'power2.inOut' }, d(.2))
+      .to(state, { explode: 0, duration: d(1.1), ease: 'power3.inOut' }, d(.1));
+  }
 };
-const scoreOne = (at: { x: number; y: number }) => {
-  const t = traces[Math.floor(Math.random() * traces.length)], pass = t.ms < THRESHOLD;
-  holdUntil = performance.now() + 2600;
-  showPanel(at.x, at.y, `trace ${String(t.id).padStart(4, '0')} · ${pass ? 'pass' : 'fail'}`, `${t.label}<br>${fmt.ms(t.ms)} ${pass ? '<' : '≥'} ${fmt.ms(THRESHOLD)} · ${pass ? 'kept for training' : 'falls away'}`);
-  setReveal(2, `${verdict.passed.length} of ${traces.length} pass at ${fmt.ms(THRESHOLD)}. last scored: "${t.label}", ${fmt.ms(t.ms)} · ${pass ? 'pass' : 'fail'}.`);
+closeButton.addEventListener('click', () => setOpen(false));
+prevButton.addEventListener('click', () => carousel.prev());
+nextButton.addEventListener('click', () => carousel.next());
+
+const hover = (facet: number) => {
+  if (facet === state.facet) return;
+  state.facet = facet;
+  body.classList.toggle('over', facet >= 0);
+  gsap.to(state, { lift: facet >= 0 ? 1 : 0, duration: d(.55), ease: osmo, overwrite: 'auto' });
 };
-const runGate = () => {
-  if (gate !== 'idle') return;
-  gate = 'running'; candidate = sim.train(verdict, hours) as number;
-  const win = candidate > sim.incumbent;
-  const offset = { x: Math.cos(state.candidateOrbit) * 2.0, y: Math.sin(state.candidateOrbit * .7) * .5 };
-  state.candidateOffset = offset;
-  gsap.to(offset, { x: 0, y: 0, duration: 1.1, ease: lusion, onComplete: () => {
-    gate = win ? 'merged' : 'rejected';
-    setReveal(4, win ? `${fmt.pct(candidate)} > ${fmt.pct(sim.incumbent)} · shipped. the candidate is the model now. then loop.` : `${fmt.pct(candidate)} < ${fmt.pct(sim.incumbent)} · discarded. the incumbent keeps flying. then loop.`);
-    if (win) { state.flare = 1; gsap.to(state, { flare: 0, duration: 1.6, ease: 'power2.out' }); }
-    else gsap.to(state, { shatter: 1, duration: 1.1, ease: osmo });
-    gsap.delayedCall(3.2, () => { state.shatter = 0; state.flare = 0; state.candidateOffset = null; gate = 'idle'; hours = Math.max(0, hours - 2); state.growth = Math.min(1, hours / 6); });
-  } });
+const pick = () => {
+  if (!world) return;
+  hit = world.pick(pointer.nx, pointer.ny, open);
+  if (open) body.classList.toggle('over', !!hit?.screen);
+  else hover(hit ? hit.facet : -1);
 };
-addEventListener('pointerdown', e => {
-  if ((e.target as Element | null)?.closest('a, button, .copy, .ui')) return;
-  pointer.down = true; pointer.lastX = e.clientX; pointer.dragging = false;
-  pointer.x = e.clientX; pointer.y = e.clientY; pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
-  const s = section();
-  hit = world && s >= 0 ? world.pick(s, pointer.nx, pointer.ny) : null;
-  if (!hit) return;
-  if (s === 0) crack();
-  else if (s === 2) scoreOne(world!.project(hit.point));
-  else if (s === 4 && hit.index === 0) runGate();
-});
 addEventListener('pointermove', e => {
-  pointer.x = e.clientX; pointer.y = e.clientY; pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
-  state.pointer.x = pointer.nx; state.pointer.y = pointer.ny;
-  if (pointer.down && section() === 1) { const dx = e.clientX - pointer.lastX; if (Math.abs(dx) > 2) pointer.dragging = true; spinTarget += dx * .006; }
-  pointer.lastX = e.clientX;
+  pointer.x = e.clientX; pointer.y = e.clientY; pointer.moved = true;
+  pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
+  cursor.style.opacity = fine ? '1' : '0';
+  pick();
+}, { passive: true });
+addEventListener('pointerdown', e => {
+  if ((e.target as Element | null)?.closest('a, button, #detail, #carousel')) return;
+  pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
+  pick();
+  if (!open && hit) setOpen(true);
 });
-addEventListener('pointerup', () => { pointer.down = false; pointer.dragging = false; });
 addEventListener('keydown', e => {
-  const s = section();
-  if (e.key === 'Enter' || e.key === ' ') { if (s === 0) crack(); else if (s === 2) scoreOne({ x: innerWidth * .66, y: innerHeight * .5 }); else if (s === 4) runGate(); else if (s === 3) { hours = Math.min(12, hours + .5); state.growth = Math.min(1, hours / 6); setReveal(3, `${fmt.hours(hours)} on one GPU so far.`); } else return; e.preventDefault(); }
-  if (s === 1 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { spinTarget += e.key === 'ArrowLeft' ? -.4 : .4; e.preventDefault(); }
+  if (e.key === 'Escape' && open) setOpen(false);
+  else if ((e.key === 'Enter' || e.key === ' ') && !(e.target as Element | null)?.closest('a, button')) { e.preventDefault(); setOpen(!open); }
 });
-stages.forEach((stage, i) => stage.setAttribute('aria-label', `${stage.dataset.hint ?? ''}${i === 3 ? ' · press Enter to train' : i === 4 ? ' · press Enter to run the gate' : i === 0 ? ' · press Enter to crack it open' : ''}`));
-
-// --- frame
-const UNITS = ['', 'traces', 'pass', 'minutes', 'candidate %'];
-let last = performance.now(), start = last;
-const frame = (now: number) => {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
-  state.time = (now - start) / 1000;
-  state.fade = Math.min(1, state.fade + dt * .6);
-  state.progress = progressNow();
-  if (cracked && state.progress > .6) crack();
-  state.fieldSpin = spin.update(dt, spinTarget);
-  state.candidateOrbit += dt * .35;
-  handleHover(dt); odometer.update(dt);
-  const s = Math.round(state.progress);
-  stages.forEach((stage, i) => stage.classList.toggle('on', Math.abs(state.progress - i) < .6));
-  odometer.set([0, traces.length, verdict.passed.length, Math.round(hours * 60), Math.round((candidate || sim.train(verdict, hours) as number) * 100)][s] ?? 0);
-  unit.textContent = UNITS[s] ?? '';
-  tag.textContent = stages[s]?.dataset.hint ?? '';
-  railFill.style.transform = `scaleY(${state.progress / 4})`;
-  if (world) {
-    crackPanels.forEach((el, i) => { if (!el.hidden) { const p = world!.project(world!.groups[0].localToWorld(CRACK_ANCHORS[i].clone().multiplyScalar((mobile ? .875 : 1.25) * (1 + state.crack * .35)).add(new THREE.Vector3(mobile ? .15 : 1.15, mobile ? .8 : 0, 0)))); el.style.transform = `translate(${Math.round(clamp(p.x - 90, 12, innerWidth - 192))}px, ${Math.round(clamp(p.y - 24, 12, innerHeight - 130))}px)`; } });
-    world.render(state);
-  }
-  if (fine.matches) cursor.style.transform = `translate(${pointer.x - 3.5}px, ${pointer.y - 3.5}px) scale(${hit ? 2.2 : 1})`;
-  requestAnimationFrame(frame);
-};
-cursor.style.opacity = fine.matches ? '1' : '0';
-document.body.dataset.renderer = world ? 'ready' : 'fallback'; document.body.dataset.intro = 'done'; document.body.dataset.ui = 'on';
-if (lenis) gsap.ticker.add(t => lenis.raf(t * 1000));
+carousel.bind(window);
 addEventListener('resize', () => world?.resize());
-if (location.search.includes('frame=')) { const i = ['loop', 'observe', 'evaluate', 'refine', 'ascend'].indexOf(new URLSearchParams(location.search).get('frame') ?? ''); if (i >= 0) { if (lenis) lenis.scrollTo(stages[i], { immediate: true, force: true }); else stages[i].scrollIntoView(); if (new URLSearchParams(location.search).get('demo')) { hours = 4.5; state.growth = .75; } } }
-requestAnimationFrame(frame);
-document.body.dataset.ready = 'true';
+
+// review states: /how?frame=observe&open=1
+const frame = params.get('frame');
+const frameIndex = frame ? MOVES.findIndex(m => m.label === frame) : -1;
+if (frameIndex >= 0) carousel.set(frameIndex);
+onMove(Math.max(0, frameIndex));
+if (params.get('open') === '1') setOpen(true);
+
+// the cursor follows with a short lag, the camera and the screen tilt with a longer one
+const cursorPos = { x: innerWidth / 2, y: innerHeight / 2 };
+let last = performance.now();
+const tick = (now: number) => {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  state.time = now / 1000;
+  carousel.update(dt);
+  state.position = carousel.position;
+  state.tilt.x = tiltX.update(dt, pointer.moved ? pointer.nx : 0);
+  state.tilt.y = tiltY.update(dt, pointer.moved ? pointer.ny : 0);
+  state.pointer.x = pointer.nx; state.pointer.y = pointer.ny;
+  cursorPos.x += (pointer.x - cursorPos.x) * Math.min(1, dt * 22); cursorPos.y += (pointer.y - cursorPos.y) * Math.min(1, dt * 22);
+  cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
+  if (world) world.render(state);
+  requestAnimationFrame(tick);
+};
+requestAnimationFrame(tick);
+body.dataset.ready = 'true';

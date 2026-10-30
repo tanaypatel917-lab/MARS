@@ -1,0 +1,22 @@
+/* /how v5: one stone, a title carousel, corner chrome. The carousel/detail/arrows/Close live in carousel.css. */
+body[data-route=how]{overflow:hidden;height:100vh;height:100dvh;overscroll-behavior:none;touch-action:none}
+body[data-route=how] #scene{pointer-events:auto}
+body[data-route=how] .corners{background:linear-gradient(var(--bg) 40%,transparent)}
+@media(pointer:fine){body[data-route=how],body[data-route=how] a,body[data-route=how] button{cursor:none}}
+body[data-route=how] #cursor{display:grid;place-items:center;mix-blend-mode:normal;transition:opacity .3s,width .45s cubic-bezier(.625,.05,0,1),height .45s cubic-bezier(.625,.05,0,1),background .3s}
+body[data-route=how] #cursor span{font:400 10px/1 'Commit Mono',monospace;letter-spacing:.08em;color:var(--bg);opacity:0;transition:opacity .25s}
+body[data-route=how].over #cursor{width:52px;height:52px;background:var(--ink)}
+body[data-route=how].over #cursor span{opacity:1}
+body[data-route=how].open.over #cursor{width:9px;height:9px}body[data-route=how].open.over #cursor span{opacity:0}
+.hint{position:fixed;z-index:6;left:50%;bottom:calc(4vh + 2px);transform:translateX(-50%);margin:0;font:400 10px/1 'Commit Mono',monospace;letter-spacing:.08em;color:var(--muted);white-space:nowrap;pointer-events:none;transition:opacity .5s}
+body[data-open=on] .hint{opacity:0}
+#main{position:fixed;inset:0;z-index:4;pointer-events:none}#main>*{pointer-events:auto}
+body[data-route=how] .link{position:relative}
+body[data-route=how] .link::before,body[data-route=how] .link::after{content:attr(data-text);position:absolute;left:0;top:0;color:var(--ink);opacity:0;pointer-events:none;transition:transform .5s cubic-bezier(.3,2.2,.45,1),opacity .15s}
+body[data-route=how] .link::before{clip-path:polygon(0 0,100% 0,100% 36%,64% 44%,38% 60%,0 54%)}
+body[data-route=how] .link::after{clip-path:polygon(0 54%,38% 60%,64% 44%,100% 36%,100% 100%,0 100%)}
+body[data-route=how] .link:hover,body[data-route=how] .link:focus-visible{color:transparent}
+body[data-route=how] .link:hover::before,body[data-route=how] .link:hover::after,body[data-route=how] .link:focus-visible::before,body[data-route=how] .link:focus-visible::after{opacity:1}
+body[data-route=how] .link:hover::before,body[data-route=how] .link:focus-visible::before{transform:translate(-.5px,-1.1px) rotate(-1.2deg)}
+body[data-route=how] .link:hover::after,body[data-route=how] .link:focus-visible::after{transform:translate(.5px,1.1px) rotate(.8deg)}
+@media(max-width:700px){.hint{bottom:calc(4vh + 70px)}}
