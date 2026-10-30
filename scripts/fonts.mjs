@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 
 await mkdir('public/fonts', { recursive: true });
-for (const [family, weight, name] of [['switzer', '500', 'Switzer-Medium'], ['switzer', '1', 'Switzer-Variable'], ['general-sans', '400', 'GeneralSans-Regular']]) {
+for (const [family, weight, name] of [['switzer', '500', 'Switzer-Medium'], ['switzer', '1', 'Switzer-Variable'], ['switzer', '800', 'Switzer-Extrabold'], ['general-sans', '400', 'GeneralSans-Regular']]) {
   const css = await fetch(`https://api.fontshare.com/v2/css?f[]=${family}@${weight}&display=swap`);
   if (!css.ok) throw new Error(`Fontshare CSS: ${css.status}`);
   const url = (await css.text()).match(/url\('([^']+\.woff2)'\)/)?.[1];
