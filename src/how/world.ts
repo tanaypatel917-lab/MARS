@@ -36,7 +36,7 @@ uniform sampler2D tPass;uniform float uReveal;uniform float uTime;uniform float 
 varying vec2 vUv;
 ${shader.noise}
 void main(){
-  float n=noise(vec3(vUv*7.,uTime*.25))*.5+noise(vec3(vUv*19.,-uTime*.4))*.5;
+  float n=vnoise(vec3(vUv*7.,uTime*.25))*.5+vnoise(vec3(vUv*19.,-uTime*.4))*.5;
   float edge=uReveal*1.25-.12;
   if(n>edge)discard;
   vec3 c=texture2D(tPass,vUv).rgb;
@@ -110,7 +110,7 @@ export class HowWorld {
     ctx.fillStyle = grad; ctx.fillRect(0, 0, 256, 256);
     const glowTexture = new THREE.CanvasTexture(glow);
     const coreMaterial = new THREE.SpriteMaterial({ map: glowTexture, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 });
-    this.core = new THREE.Sprite(coreMaterial); this.core.position.set(0, .15, 0); this.core.scale.setScalar(0);
+    this.core = new THREE.Sprite(coreMaterial); this.core.position.set(0, .15, 0); this.core.scale.setScalar(0); this.core.renderOrder = 1;
     this.scene.add(this.core); this.disposables.push(glowTexture, coreMaterial);
 
     // the screen: the move's live pass, materialising through noise
@@ -118,7 +118,7 @@ export class HowWorld {
     this.screenMaterial = new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: screenFragment, side: THREE.DoubleSide, uniforms: {
       tPass: { value: this.passes.texture }, uReveal: { value: 0 }, uTime: { value: 0 }, uFog3: { value: 0 }, uFog: { value: new THREE.Color() } } });
     const screenGeometry = new THREE.PlaneGeometry(mobile ? 1.5 : 2.1, mobile ? .94 : 1.3125);
-    this.screen = new THREE.Mesh(screenGeometry, this.screenMaterial); this.screen.position.set(0, .15, 0); this.screen.visible = false;
+    this.screen = new THREE.Mesh(screenGeometry, this.screenMaterial); this.screen.position.set(0, .15, 0); this.screen.visible = false; this.screen.renderOrder = 2;
     this.scene.add(this.screen); this.disposables.push(screenGeometry, this.screenMaterial, this.steleMaterial, this.seamMaterial);
 
     this.landscape = new Landscape(this.scene, mobile);
@@ -163,8 +163,8 @@ export class HowWorld {
     this.seams.rotation.copy(this.stele.rotation);
 
     const core = state.core;
-    (this.core.material as THREE.SpriteMaterial).opacity = core * (.85 + Math.sin(state.time * 1.7) * .08);
-    this.core.scale.setScalar(core * (this.mobile ? 3.2 : 4.4));
+    (this.core.material as THREE.SpriteMaterial).opacity = core * (.55 + Math.sin(state.time * 1.7) * .06) * (1 - state.reveal * .45);
+    this.core.scale.setScalar(core * (this.mobile ? 1.4 : 1.9));
 
     const visible = state.reveal > .001;
     this.screen.visible = visible;
