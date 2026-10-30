@@ -90,6 +90,7 @@ let scene: MarsScene | undefined;
 let lenis: Lenis | undefined;
 let progress = 0;
 let introTime = 0;
+let framesRendered = 0;
 let introFrozen = false;
 let lastTick = 0;
 let endShown = false;
@@ -168,7 +169,7 @@ function draw(now: number) {
     pointer.py += (pointer.cy - pointer.py) * .22;
     cursor.style.transform = `translate(${pointer.px}px, ${pointer.py}px) translate(-50%, -50%) scale(${pointer.hot ? 2.6 : 1})`;
   }
-  if (t < INTRO && !introFrozen || frame === 'intro') boot.textContent = `tracing · ${String(Math.round(ease(t, .3, 1.5) * 100)).padStart(3, '0')}`;
+  if (t < INTRO && !introFrozen || frame === 'intro') boot.textContent = `tracing · ${String(Math.min(Math.round(ease(t, .3, 1.5) * 100), introFrozen || t > INTRO - .4 ? 100 : Math.min(100, 30 + framesRendered * 6))).padStart(3, '0')}`;
   const state: FrameState = {
     time: now,
     outlineReveal: ease(t, .3, 1.5),
@@ -202,6 +203,8 @@ function skipIntro() {
   gsap.to({ value: introTime }, { value: INTRO, duration: .7, ease: 'osmo', onUpdate() { introTime = this.targets()[0].value; }, onComplete() { introTime = INTRO; finishIntro(); } });
 }
 function tick(time: number) {
+  framesRendered++;
+  drawWave();
   lenis?.raf(time * 1000);
   draw(time);
 }
@@ -351,4 +354,29 @@ function roll(el: HTMLElement) {
     wrap.append(g);
   });
   el.append(wrap);
+}
+
+/** Lusion-style live waveform in the sound button: the drone's own samples, a flat line when muted. */
+const waveCanvas = soundButton.querySelector<HTMLCanvasElement>('.wav');
+const waveContext = waveCanvas?.getContext('2d');
+let wavePhase = 0;
+function drawWave() {
+  if (!waveCanvas || !waveContext) return;
+  const { width, height } = waveCanvas;
+  const samples = ambient.waveform();
+  waveContext.clearRect(0, 0, width, height);
+  waveContext.strokeStyle = getComputedStyle(soundButton).color;
+  waveContext.lineWidth = 2;
+  waveContext.globalAlpha = samples ? 1 : .45;
+  waveContext.beginPath();
+  const points = 24;
+  for (let i = 0; i <= points; i++) {
+    const x = (i / points) * width;
+    let y = height / 2;
+    if (samples) y += samples[Math.floor((i / points) * (samples.length - 1))] * height * 2.2;
+    else y += Math.sin(i / points * 6.28 + wavePhase) * .6;
+    if (i === 0) waveContext.moveTo(x, y); else waveContext.lineTo(x, y);
+  }
+  waveContext.stroke();
+  wavePhase += .02;
 }
