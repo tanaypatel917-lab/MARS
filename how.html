@@ -23,9 +23,8 @@
       <a class="brand magnet" href="/">MARS</a>
       <nav class="links"><a class="link magnet" href="/how" aria-current="page">How</a><a class="link magnet" href="/#waitlist">Waitlist</a></nav>
     </header>
-    <div class="panels" aria-hidden="true"></div>
     <div class="ui hud">
-      <span id="counter" aria-live="polite">iter 000</span>
+      <span id="counter">iter 000</span>
       <span class="tag">the loop · observe, evaluate, refine, ascend</span>
     </div>
     <div class="rail ui" aria-hidden="true"><i></i><b></b><b></b><b></b><b></b><b></b></div>
@@ -40,30 +39,30 @@
         <p class="label">iter 001 · observe</p>
         <h2>Start from real traces, not a demo set.</h2>
         <p>A trace is one run of your workflow: the input, every tool call, the model's output and what happened next. MARS captures them from where the work already happens, through a drop-in SDK or a local proxy, and keeps them on your machine.</p>
-        <p>No labelling sprint. The first hundred traces are the model's first look at the mission.</p>
+        <p>No labelling sprint. Every point landing on the planet is one trace; the first thousand are the model's first look at the mission.</p>
       </section>
       <section class="chapter" id="evaluate">
         <p class="label">iter 002 · evaluate</p>
         <h2>Evals are code you write once and run on every output.</h2>
         <p>Each trace is scored by small, deterministic checks: did the output have the right shape, did it match the reference, did it finish within budget. Pass or fail, per trace, every time.</p>
-        <pre class="eval" aria-label="Example eval"><i>// evals/triage.ts</i>
-export default eval('triage', ({ out, ref, ms }) =>
-  out.label === ref.label &amp;&amp;
-  out.owner in ref.team &amp;&amp;
-  ms &lt; 800,
-)</pre>
-        <p>The pass set is the only thing the next move is allowed to learn from.</p>
+        <pre class="eval" aria-label="Example eval"><span class="line"><i>// evals/triage.ts</i></span>
+<span class="line">export default eval('triage', ({ out, ref, ms }) =&gt;</span>
+<span class="line">  out.label === ref.label &amp;&amp;</span>
+<span class="line">  out.owner in ref.team &amp;&amp;</span>
+<span class="line">  ms &lt; 800,</span>
+<span class="line">)</span></pre>
+        <p>Passes light up and stay. Fails are flung off the planet. The pass set is the only thing the next move is allowed to learn from.</p>
       </section>
       <section class="chapter" id="refine">
         <p class="label">iter 003 · refine</p>
         <h2>Fine-tune on what passed, on hardware you own.</h2>
         <p>MARS trains a low-rank adapter on the pass set: hours on a single 24 GB GPU, not days on a cluster. Nothing the model gets wrong is rewarded; nothing leaves the box.</p>
-        <p>The result is a candidate, not a release. It still has to win.</p>
+        <p>The passes sink into the surface and the terrain grows under them. The result is a candidate, not a release. It still has to win.</p>
       </section>
       <section class="chapter" id="ascend">
         <p class="label">iter 004 · ascend</p>
         <h2>New weights ship only if they beat the old ones.</h2>
-        <p>Candidate and incumbent run the same held-out evals. If the candidate wins, it becomes the model; if not, it is discarded and the incumbent keeps flying. Either way the loop starts again with fresh traces.</p>
+        <p>The candidate splits off as a wireframe and runs the same held-out evals as the incumbent. If it wins, it collapses back in and becomes the model; if not, it is discarded and the incumbent keeps flying. Either way the loop starts again with fresh traces.</p>
         <p>Every mission starts with one task.</p>
         <a class="cta magnet" href="/#waitlist">request access</a>
       </section>

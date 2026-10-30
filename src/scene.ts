@@ -28,6 +28,14 @@ export interface FrameState {
   panels: PanelView[];
   /** Optional planet offset in world units and scale multiplier, for pages that keep the planet off-centre. */
   shift?: { x: number; y: number; scale: number };
+  /** /how: relief grows from a smooth clay sphere (0) to the full terrain (1); the home page leaves it at 1. */
+  growth?: number;
+  /** /how: trace particles fall onto the planet, are scored (fails flung off) and the passes sink into the surface. */
+  traces?: { fall: number; score: number; sink: number };
+  /** /how ascend 0..1: a wireframe candidate splits off the incumbent and collapses back into it. */
+  twin?: number;
+  /** Overrides the body's noise materialisation while the beauty pass fades in (home: (1 - beautyFade) * .9). */
+  bodySpawn?: number;
 }
 
 const BACKGROUND = new THREE.Color(0x050407);
@@ -52,6 +60,10 @@ export class MarsScene {
   private readonly mask: THREE.WebGLRenderTarget;
   private readonly outline: THREE.ShaderMaterial;
   private readonly wire: THREE.ShaderMaterial;
+  private readonly twin: THREE.LineSegments;
+  private readonly twinScene = new THREE.Scene();
+  private readonly traces: THREE.ShaderMaterial;
+  private readonly tracesScene = new THREE.Scene();
   private readonly beauty: THREE.ShaderMaterial;
   private readonly atmosphere: THREE.ShaderMaterial;
   private readonly transmission: THREE.ShaderMaterial;
@@ -111,13 +123,37 @@ export class MarsScene {
     this.renderer.setRenderTarget(null);
     bakeMaterial.dispose();
     this.disposables.push(bake);
-    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key } });
+    this.beauty = material(shader.beautyFragment, { uTime: { value: 0 }, uFade: { value: 1 }, uGrowth: { value: 1 }, tTerrain: { value: bake.texture }, uTexel: { value: new THREE.Vector2(1 / bake.width, 1 / bake.height) }, uKey: { value: this.key } });
     this.atmosphere = material(shader.atmosphereFragment, { uFade: { value: 1 }, uKey: { value: this.key } }, { transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
     this.disposables.push(this.wire);
     const wireScene = new THREE.Scene();
     const lines = new THREE.LineSegments(wire, this.wire);
     wireScene.add(lines);
     this.bodies.push(lines);
+    this.twin = new THREE.LineSegments(wire, this.wire);
+    this.twinScene.add(this.twin);
+    const count = mobile ? 900 : 2000;
+    const dirs = new Float32Array(count * 3), tangents = new Float32Array(count * 3), seeds = new Float32Array(count), passed = new Float32Array(count);
+    const dir = new THREE.Vector3(), tangent = new THREE.Vector3(), up = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+      dir.set(s * Math.cos(a), u, s * Math.sin(a)).toArray(dirs, i * 3);
+      tangent.crossVectors(dir, Math.abs(u) < .9 ? up.set(0, 1, 0) : up.set(1, 0, 0)).normalize().toArray(tangents, i * 3);
+      seeds[i] = Math.random();
+      passed[i] = Math.random() < .72 ? 1 : 0;
+    }
+    const traceGeometry = new THREE.BufferGeometry();
+    traceGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    traceGeometry.setAttribute('aDir', new THREE.BufferAttribute(dirs, 3));
+    traceGeometry.setAttribute('aTangent', new THREE.BufferAttribute(tangents, 3));
+    traceGeometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    traceGeometry.setAttribute('aPass', new THREE.BufferAttribute(passed, 1));
+    this.traces = new THREE.ShaderMaterial({ vertexShader: shader.tracesVertex, fragmentShader: shader.tracesFragment, uniforms: { uFall: { value: 0 }, uScore: { value: 0 }, uSink: { value: 0 }, uTime: { value: 0 }, uDpr: { value: 1 }, uRadius: { value: 1.085 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const points = new THREE.Points(traceGeometry, this.traces);
+    points.frustumCulled = false;
+    this.tracesScene.add(points);
+    this.bodies.push(points);
+    this.disposables.push(traceGeometry, this.traces);
     const beautyScene = new THREE.Scene();
     const duskMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: shader.duskFragment, uniforms: { uRect: { value: new THREE.Vector4() } }, depthTest: false, depthWrite: false });
     this.disposables.push(duskMaterial);
@@ -214,6 +250,7 @@ export class MarsScene {
     v.uWord.value = this.voidMaterial.uniforms.tWord.value ? state.word : 0;
     this.transmission.uniforms.uTime.value = state.time;
     this.beauty.uniforms.uTime.value = state.time;
+    this.beauty.uniforms.uGrowth.value = state.growth ?? 1;
     this.wire.uniforms.uReveal.value = state.wireReveal;
     this.wire.uniforms.uOpacity.value = state.wireOpacity;
 
@@ -229,12 +266,31 @@ export class MarsScene {
     if (state.beautyFade > .001) {
       this.setFade(state.beautyFade);
       this.dusk.visible = false;
-      this.spawn.uSpawn.value = (1 - state.beautyFade) * .9;
+      this.spawn.uSpawn.value = state.bodySpawn ?? (1 - state.beautyFade) * .9;
       r.render(this.passes.beauty, this.camera);
       this.spawn.uSpawn.value = 0;
     }
     if (state.rimGhost > .001 && state.beautyFade < .001) { this.setFade(state.rimGhost); r.render(this.rimScene, this.camera); }
     if (state.wireOpacity > .001 && state.wireReveal > 0) r.render(this.passes.wireframe, this.camera);
+    if (state.traces && state.traces.fall > .001) {
+      const u = this.traces.uniforms;
+      u.uFall.value = state.traces.fall; u.uScore.value = state.traces.score; u.uSink.value = state.traces.sink;
+      u.uTime.value = state.time; u.uDpr.value = this.ratio;
+      r.render(this.tracesScene, this.camera);
+    }
+    if (state.twin && state.twin > .001) {
+      const arc = Math.sin(state.twin * Math.PI);
+      const first = this.bodies[0];
+      this.twin.rotation.copy(first.rotation);
+      this.twin.scale.copy(first.scale).multiplyScalar(1 - arc * .2);
+      this.twin.position.copy(first.position);
+      this.twin.position.x -= arc * 1.8 * first.scale.x;
+      this.twin.position.y += arc * .22 * first.scale.x;
+      this.twin.updateMatrixWorld();
+      this.wire.uniforms.uReveal.value = 1;
+      this.wire.uniforms.uOpacity.value = Math.min(1, arc * 1.6) * .85;
+      r.render(this.twinScene, this.camera);
+    }
     const height = innerHeight;
     for (const panel of state.panels) {
       if (panel.w < 2 || panel.h < 2) continue;

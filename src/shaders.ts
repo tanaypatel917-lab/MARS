@@ -117,18 +117,18 @@ export const beautyFragment = /* glsl */`
 ${morphCut}
 uniform float uSpawn;
 #define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
-uniform float uTime;uniform float uFade;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
+uniform float uTime;uniform float uFade;uniform float uGrowth;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
 void main(){MORPH_CUT SPAWN_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
  vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
  float e=.004;vec3 m0=texture2D(tTerrain,toUv(s)).rgb;float h0=m0.r;float hx=texture2D(tTerrain,toUv(normalize(s+t*e))).r;float hy=texture2D(tTerrain,toUv(normalize(s+b*e))).r;
- vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.);
+ vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*22.*uGrowth);
  vec3 key=normalize(uKey);vec3 fill=normalize(vec3(.6,-.25,.75));
  float diffuse=max(0.,dot(pn,key));float soft=max(0.,dot(n,key));float wrap=pow(max(0.,dot(pn,fill)),1.4);
- float lowland=smoothstep(.25,.6,h0);float dust=m0.g;
+ float lowland=mix(.5,smoothstep(.25,.6,h0),uGrowth);float dust=m0.g*uGrowth;
  vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.36,.19,.12);
- vec3 albedo=mix(basalt,rust,lowland);albedo=mix(albedo,pale,dust*lowland*.45);albedo*=.8+.4*m0.b;
+ vec3 albedo=mix(basalt,rust,lowland);albedo=mix(albedo,pale,dust*lowland*.45);albedo*=.8+.4*mix(.5,m0.b,uGrowth);
  float fresnel=pow(1.-max(0.,dot(n,eye)),3.2);vec3 rimColor=mix(vec3(.22,.38,1.),vec3(.52,.30,.95),smoothstep(-.6,.6,n.y));
  float terminator=smoothstep(-.08,.35,dot(n,key));vec3 c=albedo*(diffuse*terminator*1.7*vec3(1.,.93,.84)+.012)+albedo*wrap*vec3(.07,.11,.30)+rimColor*fresnel*(.12+soft*.75);
  float spec=pow(max(0.,dot(reflect(-key,pn),eye)),28.)*.08*lowland;c+=spec;
@@ -196,4 +196,35 @@ void main(){float eG=edgeAt(vUv);float eR=abs(uSplit)>1e-5?edgeAt(vUv+vec2(uSpli
  vec2 d=vUv-uCenter;float angle=fract(atan(d.x,d.y)/6.2831853+1.);float visible=step(angle,uReveal);
  float head=smoothstep(.06,0.,uReveal-angle)*step(uReveal,.999);
  vec3 col=mix(vec3(.90,.84,.75),vec3(1.),head)*split;gl_FragColor=vec4(col,edge*uOpacity*visible*(.85+head*.6));}
+`;
+
+/**
+ * Trace particles for /how: each point falls out of the dark onto the planet (uFall), is scored (uScore: passes flash,
+ * fails are flung off along the tangent) and the passes sink into the surface (uSink). Points behind the body are hidden
+ * with a view-space disc test so the system needs no depth from the other passes.
+ */
+export const tracesVertex = /* glsl */`
+attribute vec3 aDir;attribute vec3 aTangent;attribute float aSeed;attribute float aPass;
+uniform float uFall;uniform float uScore;uniform float uSink;uniform float uTime;uniform float uDpr;uniform float uRadius;
+varying float vAlpha;varying float vPass;varying float vHot;
+void main(){
+  float fall=clamp((uFall-aSeed*.75)/.25,0.,1.);float ef=1.-pow(1.-fall,3.);
+  float score=clamp((uScore-aSeed*.6)/.4,0.,1.);
+  float fail=(1.-aPass)*score;
+  vec3 p=aDir*mix(2.7,uRadius,ef)+aTangent*fail*1.7+aDir*fail*.6;
+  p+=aTangent*sin(uTime*.9+aSeed*40.)*.004*(1.-ef);
+  float hot=aPass*smoothstep(0.,.12,score)*(1.-smoothstep(.12,1.,score));
+  float alpha=fall*(1.-fail)*(1.-aPass*uSink);
+  vec4 mv=modelViewMatrix*vec4(p,1.);vec4 cv=modelViewMatrix*vec4(0.,0.,0.,1.);
+  float scale=length(modelMatrix[0].xyz);
+  if(mv.z<cv.z&&length(mv.xy-cv.xy)<uRadius*scale*.96)alpha=0.;
+  vAlpha=alpha;vPass=aPass;vHot=hot;
+  gl_Position=projectionMatrix*mv;
+  gl_PointSize=(2.1+aPass*.7+hot*3.)*uDpr*step(.001,alpha);}
+`;
+export const tracesFragment = /* glsl */`
+precision highp float;varying float vAlpha;varying float vPass;varying float vHot;
+void main(){if(vAlpha<.01)discard;float m=smoothstep(.5,.18,length(gl_PointCoord-.5));
+ vec3 c=mix(vec3(.55,.30,.26),vec3(.93,.89,.82),vPass)+vHot*vec3(.35,.45,1.);
+ gl_FragColor=vec4(c,m*vAlpha*(.7+vHot));}
 `;
