@@ -4,69 +4,92 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#050407" />
-    <meta name="description" content="How MARS works: observe real traces, evaluate them with evals you write as code, refine the open-weights model on your hardware, ascend only when the new weights win. Then loop." />
+    <meta name="description" content="How MARS works, with your hands on it: type a task, set the eval, train, run the gate. Observe · evaluate · refine · ascend." />
     <link rel="icon" href="/favicon.svg" />
     <meta property="og:title" content="MARS · how it works" />
-    <meta property="og:description" content="Observe · evaluate · refine · ascend. The recursive self-improvement loop, one pass at a time." />
+    <meta property="og:description" content="Type a task, set the eval, train, run the gate. The recursive self-improvement loop, one input at a time." />
     <meta property="og:image" content="/og.jpg" />
     <meta name="twitter:card" content="summary_large_image" />
     <title>MARS · how it works</title>
   </head>
   <body data-route="how">
     <a class="skip-link" href="#main">Skip to the text</a>
-    <noscript><p class="noscript">MARS: observe, evaluate, refine, ascend. Enable JavaScript to see the planet.</p></noscript>
+    <noscript><p class="noscript">MARS: observe, evaluate, refine, ascend. Enable JavaScript to see the shard.</p></noscript>
     <canvas id="scene" aria-hidden="true"></canvas>
     <div id="fallback" hidden aria-hidden="true"><svg viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="43" ry="46" /></svg></div>
     <div class="grain" aria-hidden="true"></div>
-    <div id="cursor" aria-hidden="true"></div>
+    <canvas id="blob" aria-hidden="true"></canvas>
     <header class="ui corners">
       <a class="brand magnet" href="/">MARS</a>
-      <nav class="links"><a class="link magnet" href="/how" aria-current="page">How</a><a class="link magnet" href="/#waitlist">Waitlist</a></nav>
+      <nav class="links"><a class="link magnet" href="/how" aria-current="page" data-text="How">How</a><a class="link magnet" href="/#waitlist" data-text="Waitlist">Waitlist</a></nav>
     </header>
     <div class="ui hud">
-      <span id="counter">iter 000</span>
+      <span id="counter" aria-live="off"></span>
       <span class="tag">the loop · observe, evaluate, refine, ascend</span>
     </div>
     <div class="rail ui" aria-hidden="true"><i></i><b></b><b></b><b></b><b></b><b></b></div>
     <main class="how" id="main">
-      <section class="chapter" id="loop">
-        <p class="label">the loop</p>
-        <h1>One model. One workflow. Four moves, repeated until day 100 beats day 1.</h1>
-        <p>MARS takes an open-weights model and points it at the tasks your team actually runs. It <b>observes</b> what happens, <b>evaluates</b> every output against checks you write as code, <b>refines</b> the weights on what passed, and <b>ascends</b> only when the new weights beat the old ones. Then it goes again.</p>
-        <p>What it is not: a benchmark, a chat wrapper, or a place your data goes. Traces, evals and weights stay on hardware you own.</p>
+      <section class="stage" id="loop">
+        <div class="copy">
+          <p class="label">the loop</p>
+          <h1>One model. One workflow. Four moves, repeated until day 100 beats day 1.</h1>
+          <p>MARS takes an open-weights model and points it at the tasks your team actually runs. It <b>observes</b> what happens, <b>evaluates</b> every output against checks you write as code, <b>refines</b> the weights on what passed, and <b>ascends</b> only when the new weights beat the old ones. Then it goes again.</p>
+          <p>This page is the loop with your hands on it. Each move waits for your input.</p>
+          <p class="go"><a class="next" href="#observe" data-next>begin · observe</a></p>
+        </div>
       </section>
-      <section class="chapter" id="observe">
-        <p class="label">iter 001 · observe</p>
-        <h2>Start from real traces, not a demo set.</h2>
-        <p>A trace is one run of your workflow: the input, every tool call, the model's output and what happened next. MARS captures them from where the work already happens, through a drop-in SDK or a local proxy, and keeps them on your machine.</p>
-        <p>No labelling sprint. Every point landing on the planet is one trace; the first thousand are the model's first look at the mission.</p>
+      <section class="stage" id="observe">
+        <div class="copy">
+          <p class="label">iter 001 · observe</p>
+          <h2>Start from real traces, not a demo set.</h2>
+          <p>A trace is one run of your workflow. Type a task below: every keystroke lands one trace on the shard, each with the latency the model actually took. Or drop a trace export instead.</p>
+          <form class="input" id="observe-form" autocomplete="off">
+            <label class="sr" for="task">Describe one task your team runs</label>
+            <input id="task" class="task" type="text" maxlength="140" placeholder="describe one task your team runs" spellcheck="false" />
+            <div class="row">
+              <label class="upload"><input type="file" id="upload" accept="application/json,.json" /><span>or upload a trace JSON</span></label>
+              <span class="meter" id="observe-meter">0 traces</span>
+            </div>
+          </form>
+          <p class="go"><button class="next" type="button" data-next disabled>continue · evaluate</button><button class="skip" type="button" data-skip>skip</button></p>
+        </div>
       </section>
-      <section class="chapter" id="evaluate">
-        <p class="label">iter 002 · evaluate</p>
-        <h2>Evals are code you write once and run on every output.</h2>
-        <p>Each trace is scored by small, deterministic checks: did the output have the right shape, did it match the reference, did it finish within budget. Pass or fail, per trace, every time.</p>
-        <pre class="eval" aria-label="Example eval"><span class="line"><i>// evals/triage.ts</i></span>
+      <section class="stage" id="evaluate">
+        <div class="copy">
+          <p class="label">iter 002 · evaluate</p>
+          <h2>Evals are code you write once and run on every output.</h2>
+          <p>Each trace is scored by small, deterministic checks. The latency budget is live: press on the number and drag. Passes stay lit. Fails are flung off the shard.</p>
+          <pre class="eval" aria-label="Example eval"><span class="line"><i>// evals/triage.ts</i></span>
 <span class="line">export default eval('triage', ({ out, ref, ms }) =&gt;</span>
 <span class="line">  out.label === ref.label &amp;&amp;</span>
 <span class="line">  out.owner in ref.team &amp;&amp;</span>
-<span class="line">  ms &lt; 800,</span>
+<span class="line">  ms &lt; <span class="scrub" id="threshold" role="slider" tabindex="0" aria-label="latency budget in milliseconds" aria-valuemin="150" aria-valuemax="2000" aria-valuenow="800">800</span>,</span>
 <span class="line">)</span></pre>
-        <p>Passes light up and stay. Fails are flung off the planet. The pass set is the only thing the next move is allowed to learn from.</p>
+          <p class="meter" id="evaluate-meter">—</p>
+          <p class="go"><button class="next" type="button" data-next disabled>continue · refine</button><button class="skip" type="button" data-skip>skip</button></p>
+        </div>
       </section>
-      <section class="chapter" id="refine">
-        <p class="label">iter 003 · refine</p>
-        <h2>Fine-tune on what passed, on hardware you own.</h2>
-        <p>MARS trains a low-rank adapter on the pass set: hours on a single 24 GB GPU, not days on a cluster. Nothing the model gets wrong is rewarded; nothing leaves the box.</p>
-        <p>The passes sink into the surface and the terrain grows under them. The result is a candidate, not a release. It still has to win.</p>
+      <section class="stage" id="refine">
+        <div class="copy">
+          <p class="label">iter 003 · refine</p>
+          <h2>Fine-tune on what passed, on hardware you own.</h2>
+          <p>Press and hold — on the button, or anywhere on the shard. Every second held is an hour on a single GPU; the terrain grows under your pointer. Nothing the model got wrong is rewarded; nothing leaves the box.</p>
+          <p class="go"><button class="hold" type="button" id="hold">press and hold to train</button><span class="meter" id="refine-meter">00h 00m · 0.0 GB</span></p>
+          <p class="go"><button class="next" type="button" data-next disabled>continue · ascend</button><button class="skip" type="button" data-skip>skip</button></p>
+        </div>
       </section>
-      <section class="chapter" id="ascend">
-        <p class="label">iter 004 · ascend</p>
-        <h2>New weights ship only if they beat the old ones.</h2>
-        <p>The candidate splits off as a wireframe and runs the same held-out evals as the incumbent. If it wins, it collapses back in and becomes the model; if not, it is discarded and the incumbent keeps flying. Either way the loop starts again with fresh traces.</p>
-        <p>Every mission starts with one task.</p>
-        <a class="cta magnet" href="/#waitlist">request access</a>
+      <section class="stage" id="ascend">
+        <div class="copy">
+          <p class="label">iter 004 · ascend</p>
+          <h2>New weights ship only if they beat the old ones.</h2>
+          <p>The wireframe is your candidate. Drag it onto the incumbent to run the gate on the same held-out evals. Win: it merges and becomes the model. Lose: it shatters and the incumbent keeps flying.</p>
+          <p class="gate"><span id="candidate-rate">candidate —</span><span class="vs">vs</span><span id="incumbent-rate">incumbent 58 %</span></p>
+          <p class="go"><button class="hold" type="button" id="run-gate">run the gate</button><span class="meter" id="verdict" role="status"></span></p>
+          <p class="go end"><a class="cta magnet" href="/#waitlist">request access</a><button class="skip" type="button" id="loop-again">loop again</button></p>
+        </div>
       </section>
     </main>
+    <button id="candidate" class="candidate" type="button" hidden aria-label="Drag the candidate onto the incumbent">candidate · drag</button>
     <script type="module" src="/src/how.ts"></script>
   </body>
 </html>

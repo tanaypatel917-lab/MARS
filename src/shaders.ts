@@ -38,8 +38,8 @@ float mhash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y
 
 /** Thin sparse wireframe; back lines fade so the body still reads as a volume. */
 export const wireVertex = /* glsl */`
-attribute float aSeed;uniform float uReveal;varying float vFacing;varying float vShow;
-void main(){vec3 n=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vFacing=dot(n,normalize(-mv.xyz));vShow=step(aSeed,uReveal);gl_Position=projectionMatrix*mv;}
+attribute float aSeed;uniform float uReveal;uniform float uDissolve;varying float vFacing;varying float vShow;
+void main(){vec3 n=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vFacing=dot(n,normalize(-mv.xyz));float gone=step(fract(aSeed*97.13+position.x*3.1),uDissolve);vShow=step(aSeed,uReveal)*(1.-gone);vec3 p=position+normalize(position)*uDissolve*uDissolve*.5*fract(aSeed*31.7);gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);}
 `;
 export const wireFragment = /* glsl */`
 uniform float uOpacity;varying float vFacing;varying float vShow;
@@ -117,7 +117,7 @@ export const beautyFragment = /* glsl */`
 ${morphCut}
 uniform float uSpawn;
 #define SPAWN_CUT if(uSpawn>.001){vec3 sq=floor(vObject*mix(18.,7.,uSpawn))+floor(uSpawn*24.);if(fract(sin(dot(sq,vec3(12.9898,78.233,37.719)))*43758.5453)<uSpawn*uSpawn*.95)discard;}
-uniform float uTime;uniform float uFade;uniform float uGrowth;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
+uniform float uTime;uniform float uFade;uniform float uGrowth;uniform vec4 uContour;uniform sampler2D tTerrain;uniform vec2 uTexel;uniform vec3 uKey;varying vec3 vNormal;varying vec3 vView;
 float hash(vec3 p){p=fract(p*.1031);p+=dot(p,p.yzx+33.33);return fract((p.x+p.y)*p.z);}
 vec2 toUv(vec3 s){return vec2(atan(s.z,s.x)/6.2831853+.5,asin(clamp(s.y,-1.,1.))/3.1415926+.5);}
 void main(){MORPH_CUT SPAWN_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vView);vec3 s=normalize(vObject);
@@ -133,6 +133,7 @@ void main(){MORPH_CUT SPAWN_CUT vec3 n=normalize(vNormal);vec3 eye=normalize(-vV
  float terminator=smoothstep(-.08,.35,dot(n,key));vec3 c=albedo*(diffuse*terminator*1.7*vec3(1.,.93,.84)+.012)+albedo*wrap*vec3(.07,.11,.30)+rimColor*fresnel*(.12+soft*.75);
  float spec=pow(max(0.,dot(reflect(-key,pn),eye)),28.)*.08*lowland;c+=spec;
  c+=albedo*vec3(.05,.08,.18)*(1.-terminator)*.35;c+=vec3(.2,.3,.7)*exp(-pow(dot(n,key)/.12,2.))*.05*(1.-fresnel);
+ if(uContour.w>0.){float d=distance(s,normalize(uContour.xyz));float field=smoothstep(uContour.w,uContour.w*.35,d);float iso=abs(fract(h0*16.+uTime*.12)-.5);float line=smoothstep(.09,.02,iso)*field;c=mix(c,vec3(.93,.89,.82)*.9,line*.75);c+=vec3(.22,.38,1.)*field*.05;}
  float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;c=c/(1.+c*.25)+grain;
  gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))*uFade,1.);}
 `;
@@ -159,7 +160,7 @@ void main(){vec2 p=(gl_FragCoord.xy-uRect.xy)/uRect.zw;vec3 top=vec3(.016,.012,.
 
 /** The empty page itself: near-black, a faint pointer light and live grain, after Guillaume's void shader. */
 export const voidFragment = /* glsl */`
-uniform vec2 uPointer;uniform float uAspect;uniform float uTime;uniform float uLight;uniform float uHorizon;uniform float uWord;uniform sampler2D tWord;varying vec2 vUv;uniform sampler2D tMask;
+uniform vec2 uPointer;uniform float uAspect;uniform float uTime;uniform float uLight;uniform float uHorizon;uniform float uWord;uniform sampler2D tWord;varying vec2 vUv;uniform sampler2D tMask;uniform vec3 uFlare;
 /* Guillaume's void shader: the pointer is a lamp the subject occludes; march toward the light through the mask. */
 float shadow(vec2 uv,vec2 light,float aspect){vec2 d=light-uv;float len=length(d*vec2(aspect,1.));float thick=0.;float j=fract(sin(dot(uv,vec2(12.9898,78.233)))*43758.5453);
  for(int i=0;i<20;i++){float f=(float(i)+j)/20.;thick+=texture2D(tMask,uv+d*f).r;}
@@ -177,6 +178,7 @@ void main(){vec2 d=vUv-uPointer;d.x*=uAspect;float r=length(d);
  float hz=exp(-pow(vUv.y/.26,2.));float hz2=exp(-pow(vUv.y/.09,2.));
  vec2 cell=floor(gl_FragCoord.xy/2.);float grainH=step(fract(sin(dot(cell,vec2(127.1,311.7))+floor(uTime*6.)*.37)*43758.5453),hz*.55)*.55;
  c+=vec3(.10,.16,.40)*mix(hz,grainH,.5)*uHorizon*.55;c+=vec3(.26,.14,.10)*hz2*uHorizon*.35;
+ if(uFlare.z>.001){vec2 fd=(vUv-uFlare.xy)*vec2(uAspect,1.);float fr=length(fd)/(.16+uFlare.z*.7);vec2 fc=floor(gl_FragCoord.xy/2.);float band=exp(-fr*fr*2.2)*(.65+.35*sin(fr*18.-uTime*6.));float occ=step(h2(fc+floor(uTime*18.)*.73),band*(1.-uFlare.z*.6));float fade=1.-uFlare.z*uFlare.z;c+=vec3(.93,.89,.82)*occ*fade+vec3(.22,.38,1.)*exp(-fr*fr*3.)*.45*fade;}
  float vignette=1.-.35*pow(length((vUv-.5)*vec2(1.,.8)),1.6);c*=vignette;
  c+=(h2(gl_FragCoord.xy+floor(uTime*9.)*.37)-.5)*.022;gl_FragColor=vec4(max(c,0.),1.);}
 `;
@@ -204,11 +206,12 @@ void main(){float eG=edgeAt(vUv);float eR=abs(uSplit)>1e-5?edgeAt(vUv+vec2(uSpli
  * with a view-space disc test so the system needs no depth from the other passes.
  */
 export const tracesVertex = /* glsl */`
-attribute vec3 aDir;attribute vec3 aLand;attribute vec3 aTangent;attribute float aSeed;attribute float aPass;
-uniform float uFall;uniform float uScore;uniform float uSink;uniform float uTime;uniform float uDpr;uniform float uRadius;
+attribute vec3 aDir;attribute vec3 aLand;attribute vec3 aTangent;attribute float aSeed;attribute float aMs;attribute float aIndex;attribute float aBorn;
+uniform float uFall;uniform float uScore;uniform float uSink;uniform float uTime;uniform float uDpr;uniform float uRadius;uniform float uCount;uniform float uThreshold;
 varying float vAlpha;varying float vPass;varying float vHot;
 void main(){
-  float fall=clamp((uFall-aSeed*.75)/.25,0.,1.);float ef=1.-pow(1.-fall,3.);
+  float aPass=step(aMs,uThreshold);
+  float fall=(aBorn>0.?clamp((uTime-aBorn)/.9,0.,1.):clamp((uFall-aSeed*.75)/.25,0.,1.))*step(aIndex+.5,uCount);float ef=1.-pow(1.-fall,3.);
   float score=clamp((uScore-aSeed*.6)/.4,0.,1.);
   float fail=(1.-aPass)*score;
   vec3 p=mix(aDir*2.7,aLand*1.04,ef)+aTangent*fail*1.7+aDir*fail*.6;
@@ -220,7 +223,8 @@ void main(){
   if(mv.z<cv.z&&length(mv.xy-cv.xy)<uRadius*scale*.96)alpha=0.;
   vAlpha=alpha;vPass=aPass;vHot=hot;
   gl_Position=projectionMatrix*mv;
-  gl_PointSize=(2.1+aPass*.7+hot*3.)*uDpr*step(.001,alpha);}
+  float few=1.+2.4*clamp(1.-uCount/300.,0.,1.);
+  gl_PointSize=(2.1+aPass*.7+hot*3.)*few*uDpr*step(.001,alpha);}
 `;
 export const tracesFragment = /* glsl */`
 precision highp float;varying float vAlpha;varying float vPass;varying float vHot;

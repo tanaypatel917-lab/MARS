@@ -6,6 +6,7 @@ Approval specimen: `/specimen.html`; screenshot `shots/font-specimen.png`.
 | Role | Face | Source | License / web embedding |
 |---|---|---|---|
 | Display / wordmark | Switzer Medium 500, Indian Type Foundry | https://www.fontshare.com/fonts/switzer | ITF Free Font License v2.0 (17 Aug 2026), §01 explicitly permits commercial websites and self-hosted CSS @font-face |
+| /how typing field | Switzer Variable (wght 100–900), Indian Type Foundry — weight follows typing speed, after Pangram Pangram's axis-driven specimens | https://www.fontshare.com/fonts/switzer | same ITF FFL v2.0 |
 | Body | General Sans Regular 400, Indian Type Foundry | https://www.fontshare.com/fonts/general-sans | Same ITF Free Font License, commercial web embedding permitted |
 | Labels | Commit Mono Regular 400 (variable source v1.43), Eigil Nikolajsen | https://uncut.wtf/monospace/commit-mono/ → https://commitmono.com/ | SIL Open Font License 1.1; commercial use, web embedding and redistribution with license permitted |
 

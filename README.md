@@ -12,7 +12,7 @@ see [FONTS.md](FONTS.md) for licenses and repository restrictions.
 
 Review states: `?frame=intro`, `rest`, `mid`, `full`, `close`, `beauty`.
 
-`/how` is the loop in depth: one chapter per pass beside the same planet (`src/how.ts`, `how.html`). Review states: `/how?frame=loop`, `observe`, `evaluate`, `refine`, `ascend`.
+`/how` is the loop with your hands on it: a fractured shard instead of the planet, and one input per move — type a task (observe), drag the latency budget (evaluate), press-and-hold to train (refine), drag the candidate onto the incumbent (ascend); a trace JSON can be uploaded instead of typing. Scoring is an in-browser `Simulation` behind the `Scorer` interface in `src/how/scorer.ts` (swap in `RemoteScorer` when the API exists). Inputs persist in the URL hash. Review states: `/how?frame=loop|observe|evaluate|refine|ascend`, add `&demo=1` to prefill the inputs.
 Type specimen: `/specimen.html`. `shots/` is intentionally gitignored.
 
 `npm run build` and `npx tsc --noEmit` check the production bundle/types.

@@ -4,4 +4,5 @@ shots/
 .env*
 .DS_Store
 public/fonts/Switzer-Medium.woff2
+public/fonts/Switzer-Variable.woff2
 public/fonts/GeneralSans-Regular.woff2
