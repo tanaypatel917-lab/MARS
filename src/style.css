@@ -87,6 +87,7 @@ body[data-route=how] .link:hover::before,body[data-route=how] .link:focus-visibl
 body[data-route=how] .link:hover::after,body[data-route=how] .link:focus-visible::after{transform:translate(.5px,1.1px) rotate(.8deg)}
 @media(max-width:700px){body[data-route=how] .hud{display:none}.stage{align-items:flex-end;padding:46vh 0 8vh}.stage:first-child{padding-top:54vh}.copy{max-width:none}.task{font-size:20px}.eval{font-size:10px}}
 /* /how v4: one continuous space, Guillaume window chrome anchored to the object under the pointer */
+body[data-route=how] #scene{pointer-events:auto}
 body[data-route=how] .panels{position:fixed;inset:0;pointer-events:none;overflow:visible}
 .how-panel{left:0;top:0;width:236px;transform-origin:0 0;background:rgba(5,4,7,.55);backdrop-filter:blur(6px)}.how-panel .bar{background:transparent;border-bottom:1px solid var(--line)}
 .how-panel .pane{padding:10px 11px 12px;font:400 11.5px/1.5 var(--mono);color:var(--ink);letter-spacing:.01em}.how-panel .pane i{font-style:normal;color:var(--muted);display:block;margin-top:6px}
