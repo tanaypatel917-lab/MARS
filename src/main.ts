@@ -182,8 +182,8 @@ function draw(now: number) {
     spin,
     light: Math.min(1, t / 2.2) * (pointer.seen ? 1 : .35),
     horizon: ease(progress, .84, .14),
-    word: ease(progress, .86, .08) * (1 - ease(progress, .9, .1)),
-    morph: ease(progress, .9, .1),
+    word: ease(progress, .86, .08) * (1 - smooth((progress - .88) / .08)),
+    morph: smooth((progress - .87) / .13),
     split: spinVelocity * .0022,
     panels: views,
   };
