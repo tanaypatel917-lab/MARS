@@ -30,6 +30,11 @@
 #carousel .title{position:absolute;left:0;right:0;bottom:0;margin:0;text-align:center;white-space:nowrap;transform-origin:50% 50%;will-change:transform,opacity;backface-visibility:hidden;font:800 1em/.86 Switzer,'Switzer Variable',sans-serif;text-transform:uppercase;letter-spacing:-.03em;color:rgba(236,230,220,var(--solid,0));-webkit-text-stroke:1px rgba(236,230,220,var(--stroke,.55));-webkit-font-smoothing:antialiased;user-select:none;pointer-events:none}
 #carousel .title span{display:inline-block;pointer-events:auto;cursor:pointer;will-change:transform;transition:transform .9s cubic-bezier(.35,0,0,1),opacity .7s cubic-bezier(.35,0,0,1)}
 body[data-open=on] #carousel .title:not([data-active]) span{opacity:.3}
+/* rewind control — appears on the last move, spins the camera back through the orbit */
+#loopback{position:fixed;z-index:6;right:var(--edge);bottom:calc(4vh + 14px);margin:0;padding:4px 0;font:400 10px/1 'Commit Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);background:none;border:0;cursor:pointer;opacity:0;visibility:hidden;transition:opacity .4s ease,visibility .4s}
+body[data-end=on] #loopback{opacity:.55;visibility:visible}
+body[data-end=on] #loopback:hover,body[data-end=on] #loopback:focus-visible{opacity:1}
+@media(max-width:700px){#loopback{bottom:calc(4vh + 2px)}}
 #carousel.moving .title span{transition:none}
 #carousel .title[data-active] span{cursor:default}
 #carousel .title:not([data-active]) span:hover{-webkit-text-stroke-color:rgba(236,230,220,.9)}
