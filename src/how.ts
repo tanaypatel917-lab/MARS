@@ -54,6 +54,7 @@ const closeButton = select<HTMLButtonElement>('#close');
 const links = select('header .links');
 const prevButton = select<HTMLButtonElement>('.arrow.prev');
 const nextButton = select<HTMLButtonElement>('.arrow.next');
+const loopbackButton = select<HTMLButtonElement>('#loopback');
 const detail = select('#detail');
 const detailIndex = select('#detail-index'), detailMove = select('#detail-move'), detailBody = select('#detail-body'), detailMeta = select('#detail-meta');
 const body = document.body;
@@ -109,6 +110,7 @@ const onMove = (i: number) => {
     state.pass = i as PassIndex; state.blend = 1; describe(i);
   }
   prevButton.disabled = i === 0; nextButton.disabled = i === MOVES.length - 1;
+  body.dataset.end = i === MOVES.length - 1 ? 'on' : 'off';
 };
 carousel.onChange(onMove);
 
@@ -159,6 +161,7 @@ const drawWave = () => {
 };
 prevButton.addEventListener('click', () => carousel.prev());
 nextButton.addEventListener('click', () => carousel.next());
+loopbackButton.addEventListener('click', () => { carousel.set(0); });
 
 const hover = (facet: number) => {
   if (facet === state.facet) return;
