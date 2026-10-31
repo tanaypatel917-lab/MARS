@@ -130,9 +130,9 @@ export class Carousel {
       const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
       const gap = now - this.lastWheel, size = Math.abs(delta);
       this.lastWheel = now;
-      // a new gesture is a real pause, or — once the lock is over — a discrete notch (mouse wheel: line mode, or a big delta after a quiet gap);
-      // a trackpad inertia tail is small, dense deltas, so it never re-arms before the pause
-      const notch = event.deltaMode !== 0 || (size >= WHEEL_NOTCH && gap > WHEEL_GAP);
+      // a new gesture is a real pause, or — once the lock is over — a discrete notch: a big delta after a quiet gap (one line counts as big in line mode);
+      // a trackpad inertia tail is dense, so it never re-arms before the pause whatever its deltaMode
+      const notch = size >= (event.deltaMode === 0 ? WHEEL_NOTCH : 1) && gap > WHEEL_GAP;
       if (gap > WHEEL_PAUSE || (now >= this.wheelLockUntil && notch)) this.wheelArmed = true;
       if (!this.wheelArmed || now < this.wheelLockUntil || Math.abs(delta) < WHEEL_MIN) return;
       this.wheelArmed = false;
