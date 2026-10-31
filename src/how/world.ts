@@ -27,7 +27,7 @@ export interface WorldState {
 export interface Hit { facet: number; point: THREE.Vector3; screen: boolean; distance: number }
 
 const RADIUS = 5.6;
-const YAW_PER_MOVE = Math.PI * .4; // 72° a move — the four turns make one full 360° orbit around the stele
+const YAW_PER_MOVE = Math.PI * .5; // 90° a move — the four turns make one full 360° orbit around the stele
 const LOOK = new THREE.Vector3(0, .2, 0);
 
 const screenFragment = /* glsl */`
