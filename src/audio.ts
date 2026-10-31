@@ -8,8 +8,8 @@ export class Ambient {
   private sleepTimer?: ReturnType<typeof setTimeout>;
   get on() { return !!this.context && this.context.state === 'running' && (this.gain?.gain.value ?? 0) > 0; }
   async start() {
-    if (!this.context) {
-      this.context = new AudioContext();
+    this.context ??= new AudioContext();
+    if (!this.gain) {
       this.gain = this.context.createGain();
       this.gain.gain.value = 0;
       this.analyser = this.context.createAnalyser();

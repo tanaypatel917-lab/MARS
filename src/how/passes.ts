@@ -171,7 +171,7 @@ export class LivePasses {
       const wire = new THREE.ShaderMaterial({ vertexShader: shader.wireVertex, fragmentShader: shader.wireFragment, uniforms: { uReveal: { value: 1 }, uOpacity: { value: .85 }, uDissolve: { value: 0 } }, transparent: true, depthWrite: false });
       this.disposables.push(wire);
       const candidate = new THREE.LineSegments(wireGeo, wire); scene.add(candidate);
-      const flash = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform float uFlash;void main(){gl_FragColor=vec4(vec3(.93,.89,.82)*uFlash,1.);}', uniforms: { uFlash: { value: 0 } }, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending });
+      const flash = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform float uFlash;void main(){gl_FragColor=vec4(vec3(.93,.89,.82)*uFlash,uFlash);}', uniforms: { uFlash: { value: 0 } }, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending });
       this.disposables.push(flash);
       const flashQuad = new THREE.Mesh(quad, flash); flashQuad.frustumCulled = false; flashQuad.renderOrder = 3; scene.add(flashQuad);
       const orbit = new THREE.Vector3();
@@ -197,7 +197,7 @@ export class LivePasses {
       } };
     }
 
-    this.fadeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform sampler2D tPrev;uniform float uBlend;varying vec2 vUv;void main(){gl_FragColor=vec4(texture2D(tPrev,vUv).rgb,1.-uBlend);}', uniforms: { tPrev: { value: this.prev.texture }, uBlend: { value: 1 } }, transparent: true, depthTest: false, depthWrite: false });
+    this.fadeMaterial = new THREE.ShaderMaterial({ vertexShader: shader.fullscreenVertex, fragmentShader: 'uniform sampler2D tPrev;uniform float uBlend;varying vec2 vUv;void main(){vec4 p=texture2D(tPrev,vUv);gl_FragColor=vec4(p.rgb,p.a*(1.-uBlend));}', uniforms: { tPrev: { value: this.prev.texture }, uBlend: { value: 1 } }, transparent: true, depthTest: false, depthWrite: false });
     const fadeQuad = new THREE.Mesh(quad, this.fadeMaterial); fadeQuad.frustumCulled = false; this.fadeScene.add(fadeQuad);
     this.disposables.push(this.fadeMaterial);
   }
@@ -218,7 +218,7 @@ export class LivePasses {
 
     const savedTarget = r.getRenderTarget(), savedAutoClear = r.autoClear, savedScissor = r.getScissorTest(), savedAlpha = r.getClearAlpha();
     r.getClearColor(this.savedClear);
-    r.setScissorTest(false); r.setClearColor(0x000000, 1); r.autoClear = true;
+    r.setScissorTest(false); r.setClearColor(0x000000, 0); r.autoClear = true;
     const fading = blend < 1 && this.previous !== null && this.previous !== index;
     if (fading) this.draw(this.previous!, time, this.prev);
     this.draw(index, time, this.out);

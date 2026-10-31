@@ -39,12 +39,12 @@ void main(){
   float n=vnoise(vec3(vUv*7.,uTime*.25))*.5+vnoise(vec3(vUv*19.,-uTime*.4))*.5;
   float edge=uReveal*1.25-.12;
   if(n>edge)discard;
-  vec3 c=max(texture2D(tPass,vUv).rgb,uFog*.12);
+  vec4 t=texture2D(tPass,vUv);
+  if(t.a<.01)discard;
   float rim=smoothstep(edge-.09,edge,n);
-  c=mix(c,vec3(1.,.9,.8),rim*.85);
-  float vig=smoothstep(.9,.35,length(vUv-.5));
-  c*=.72+.28*vig;
-  gl_FragColor=vec4(c,1.);
+  vec3 c=mix(t.rgb,vec3(1.,.9,.8),rim*.85);
+  float soft=smoothstep(.5,.42,max(abs(vUv.x-.5),abs(vUv.y-.5)));
+  gl_FragColor=vec4(c,t.a*soft);
 }`;
 /** The hero's beauty pass re-lit for a stone standing in dust: the planet's blue limb and sky fill become the fog colour. */
 const steleFragment = shader.beautyFragment
@@ -122,10 +122,10 @@ export class HowWorld {
 
     // the screen: the move's live pass, materialising through noise
     this.passes = new LivePasses(this.renderer, mobile);
-    this.screenMaterial = new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: screenFragment, side: THREE.DoubleSide, uniforms: {
+    this.screenMaterial = new THREE.ShaderMaterial({ vertexShader: screenVertex, fragmentShader: screenFragment, side: THREE.DoubleSide, transparent: true, depthWrite: false, uniforms: {
       tPass: { value: this.passes.texture }, uReveal: { value: 0 }, uTime: { value: 0 }, uFog3: { value: 0 }, uFog: { value: new THREE.Color() } } });
     const screenGeometry = new THREE.PlaneGeometry(mobile ? 1.5 : 2.1, mobile ? .94 : 1.3125);
-    this.screen = new THREE.Mesh(screenGeometry, this.screenMaterial); this.screen.position.set(0, .15, 0); this.screen.visible = false; this.screen.renderOrder = 2;
+    this.screen = new THREE.Mesh(screenGeometry, this.screenMaterial); this.screen.position.set(0, .15, 0); this.screen.visible = false; this.screen.renderOrder = 3;
     this.scene.add(this.screen); this.disposables.push(screenGeometry, this.screenMaterial, this.steleMaterial, this.seamMaterial);
 
     this.landscape = new Landscape(this.scene, mobile);
@@ -173,7 +173,7 @@ export class HowWorld {
     this.seams.rotation.copy(this.stele.rotation);
 
     const core = state.core;
-    (this.core.material as THREE.SpriteMaterial).opacity = core * (.55 + Math.sin(state.time * 1.7) * .06) * (1 - state.reveal * .45);
+    (this.core.material as THREE.SpriteMaterial).opacity = core * (.5 + Math.sin(state.time * 1.7) * .06) * (1 - state.reveal * .3);
     this.core.scale.setScalar(core * (this.mobile ? 1.6 : 2.2));
     // the glow sits just behind the screen so the opaque plane occludes its centre and only a halo leaks around the edges
     this.core.position.set(0, .15, 0).addScaledVector(u.uCam.value as THREE.Vector3, -.3);

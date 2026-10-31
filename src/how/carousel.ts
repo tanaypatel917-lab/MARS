@@ -7,7 +7,7 @@
 export interface CarouselOptions { reducedMotion: boolean }
 
 const F = 1.5, ZETA = .8;
-const WHEEL_LOCK = 650, WHEEL_GAP = 90, WHEEL_MIN = 4;
+const WHEEL_LOCK = 650, WHEEL_GAP = 180, WHEEL_PAUSE = 450, WHEEL_MIN = 4;
 const SWIPE = 40;
 const TWEEN = 1100;
 const SPACING = 56, SPACING_MOBILE = 70;
@@ -46,7 +46,7 @@ export class Carousel {
   private y = 0; private yd = 0;
   private readonly k1 = ZETA / (Math.PI * F); private readonly k2 = 1 / ((2 * Math.PI * F) ** 2);
   private tween: { from: number; to: number; t: number } | null = null;
-  private wheelLockUntil = 0; private lastWheel = -Infinity; private wheelArmed = true;
+  private wheelLockUntil = 0; private lastWheel = -Infinity; private wheelArmed = true; private lastWheelSize = 0;
   private touch: { x: number; y: number; done: boolean } | null = null;
   private dirty = true;
   private destroyed = false;
@@ -97,7 +97,7 @@ export class Carousel {
     if (this.destroyed) return;
     dt = clamp(dt, 0, 1 / 20);
     const now = performance.now();
-    if (!this.wheelArmed && now - this.lastWheel > WHEEL_GAP) this.wheelArmed = true;
+    if (!this.wheelArmed && now - this.lastWheel > WHEEL_PAUSE) this.wheelArmed = true;
     const x = this.target;
     if (this.options.reducedMotion) {
       if (this.tween) {
@@ -128,9 +128,10 @@ export class Carousel {
       if (event.cancelable) event.preventDefault();
       const now = performance.now();
       const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-      const gap = now - this.lastWheel;
-      this.lastWheel = now;
-      if (gap > WHEEL_GAP) this.wheelArmed = true;
+      const gap = now - this.lastWheel, size = Math.abs(delta), grew = size > this.lastWheelSize * 1.25;
+      this.lastWheel = now; this.lastWheelSize = size;
+      // a new gesture is a real pause, or a quiet gap followed by a *growing* delta (an inertia tail only decays — and slow frames stretch its gaps)
+      if (gap > WHEEL_PAUSE || (gap > WHEEL_GAP && grew)) this.wheelArmed = true;
       if (!this.wheelArmed || now < this.wheelLockUntil || Math.abs(delta) < WHEEL_MIN) return;
       this.wheelArmed = false;
       this.wheelLockUntil = now + WHEEL_LOCK;

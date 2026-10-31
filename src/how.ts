@@ -80,6 +80,7 @@ const tiltX = new Dynamics(0, 1.2, .75), tiltY = new Dynamics(0, 1.2, .75);
 const fog = new THREE.Color(FOG[0]);
 if (world) world.landscape.fog.copy(fog);
 let open = false, hit: Hit | null = null, lastMove = -1;
+let openTimeline: gsap.core.Timeline | undefined;
 const pointer = { x: innerWidth / 2, y: innerHeight / 2, nx: 0, ny: 0, moved: false };
 
 /** Text for the current move; swaps with a short fade while open. */
@@ -116,13 +117,14 @@ const setOpen = (next: boolean) => {
   open = next;
   if (gestured && !reduced) ambient.crack(open);
   body.dataset.open = open ? 'on' : 'off';
+  openTimeline?.kill();
   body.classList.toggle('open', open);
   closeButton.hidden = !open; prevButton.hidden = !open; nextButton.hidden = !open;
   gsap.to(links, { opacity: open ? 0 : 1, duration: d(.4), ease: 'power2.out', overwrite: true, onComplete: () => { links.style.pointerEvents = open ? 'none' : ''; } });
   gsap.killTweensOf(state, 'explode,core,reveal,lift');
   if (open) {
     state.facet = -1;
-    gsap.timeline({ defaults: { overwrite: 'auto' } })
+    openTimeline = gsap.timeline({ defaults: { overwrite: 'auto' } })
       .to(state, { lift: 0, duration: d(.2) }, 0)
       .to(state, { explode: 1, duration: d(1.25), ease: 'back.out(1.25)' }, 0)
       .to(state, { core: 1, duration: d(.9), ease: 'power2.out' }, d(.15))
@@ -131,7 +133,7 @@ const setOpen = (next: boolean) => {
       .fromTo([closeButton, prevButton, nextButton], { opacity: 0 }, { opacity: 1, duration: d(.5), stagger: .05 }, d(.5));
     if (fine) closeButton.focus({ preventScroll: true });
   } else {
-    gsap.timeline({ defaults: { overwrite: 'auto' } })
+    openTimeline = gsap.timeline({ defaults: { overwrite: 'auto' } })
       .to(detail, { opacity: 0, y: 12, duration: d(.3), ease: 'power2.in' }, 0)
       .to([closeButton, prevButton, nextButton], { opacity: 0, duration: d(.25) }, 0)
       .to(state, { reveal: 0, duration: d(.5), ease: 'power2.in' }, 0)
@@ -176,8 +178,16 @@ addEventListener('pointermove', e => {
   cursor.style.opacity = fine ? '1' : '0';
   pick();
 }, { passive: true });
+// a tap opens the stone; a swipe that happens to start on it only turns the carousel
+let down: { x: number; y: number; t: number } | null = null;
 addEventListener('pointerdown', e => {
-  if ((e.target as Element | null)?.closest('a, button, #detail, #carousel')) return;
+  down = (e.target as Element | null)?.closest('a, button, #detail, #carousel') ? null : { x: e.clientX, y: e.clientY, t: performance.now() };
+});
+addEventListener('pointerup', e => {
+  if (!down) return;
+  const tap = Math.hypot(e.clientX - down.x, e.clientY - down.y) < 10 && performance.now() - down.t < 600;
+  down = null;
+  if (!tap) return;
   pointer.nx = (e.clientX / innerWidth) * 2 - 1; pointer.ny = 1 - (e.clientY / innerHeight) * 2;
   pick();
   if (!open && hit) setOpen(true);
