@@ -35,13 +35,12 @@ class Dynamics {
 
 interface Move { title: string; label: string; body: string; meta: string }
 const MOVES: Move[] = [
-  { title: 'THE\nLOOP', label: 'the loop', body: 'One open-weights model, pointed at the tasks your team already runs. Four moves — observe, evaluate, refine, ascend — repeated until day 100 beats day 1.', meta: 'inside the stone: the model as it ships today' },
-  { title: 'OBSERVE', label: 'observe', body: 'Every run of your workflow becomes a trace: the input, the tool calls, the output, the latency. Collected where the work already happens, kept on your machines.', meta: '2 000 traces · a drop-in SDK or a local proxy' },
-  { title: 'EVALUATE', label: 'evaluate', body: 'Evals are code you write once and run on every output: right shape, matches the reference, within budget. What passes collects; what fails falls away.', meta: 'pass 0 720 / 1 000 · deterministic checks' },
-  { title: 'REFINE', label: 'refine', body: 'A low-rank adapter is trained on what passed — on hardware you own, inside a time and memory envelope you set. The weights grow where the passes landed.', meta: '04h 12m · 19.4 GB · one 24 GB GPU' },
-  { title: 'ASCEND', label: 'ascend', body: 'The candidate meets the incumbent on a held-out set. It ships only if it wins; otherwise it is discarded and the loop goes again. Rollback is one commit.', meta: 'candidate 77 % vs incumbent 58 % · shipped' },
-];
-const HINTS = ['scroll to turn · hover the stone · click to open', 'scroll to turn · click to open', 'click to open', 'click to open', 'click to open'];
+  { title: 'THE\nLOOP', label: 'the loop', body: 'MARS is an open model you run yourself, aimed at one job: your team\u2019s real workflow. It gets better at that job in a loop — watch, test, train, promote — that repeats forever.', meta: 'the model as it ships today · the weights are yours' },
+  { title: 'OBSERVE', label: 'observe', body: 'Every time your workflow runs, MARS writes down what happened: what went in, which tools it called, what came out, how long it took. One line of code or a local proxy collects it — nothing leaves your machines.', meta: '2 000 runs logged · one line of code · stays on your hardware' },
+  { title: 'EVALUATE', label: 'evaluate', body: 'You decide what \u201cgood\u201d means once, as small checks in code: the output has the right shape, matches your reference, stays under your time and cost limits. Runs that pass pile up; runs that fail are dropped.', meta: '720 of 1 000 runs pass · checks you write, run by us' },
+  { title: 'REFINE', label: 'refine', body: 'The passing runs are used to train a small add-on to the model — on a GPU you own, for however long you allow. Your data never goes anywhere; the model just gets better at your task.', meta: '04h 12m · 19.4 GB · one 24 GB GPU you own' },
+  { title: 'ASCEND', label: 'ascend', body: 'The newly trained model is tested against the current one on examples neither has seen. It becomes the default only if it clearly wins — otherwise it\u2019s thrown out and the loop starts again. Going back is one commit.', meta: 'new 77 % vs current 58 % · only promoted on a win' },
+];;
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const fine = matchMedia('(pointer: fine)').matches;
@@ -87,7 +86,8 @@ const pointer = { x: innerWidth / 2, y: innerHeight / 2, nx: 0, ny: 0, moved: fa
 /** Text for the current move; swaps with a short fade while open. */
 const describe = (i: number) => {
   const move = MOVES[i];
-  detailIndex.textContent = i === 0 ? 'iter 000' : `iter 00${i}`;
+
+const HINTS = ['scroll to turn · hover the stone · click to open', 'scroll to turn · click to open', 'click to open', 'click to open', 'click to open'];  detailIndex.textContent = i === 0 ? 'iter 000' : `iter 00${i}`;
   detailMove.textContent = move.label;
   detailBody.textContent = move.body;
   detailMeta.textContent = move.meta;
