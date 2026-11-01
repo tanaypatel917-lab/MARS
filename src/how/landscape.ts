@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as shader from './landscapeShaders';
 import { EXTENT, BASE, POOL, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt } from './landscapeTerrain';
 import { buildColony } from './landscapeColony';
-import { buildGround } from './landscapeGround';
+import { buildGround, updateRocks } from './landscapeGround';
 import { buildSky } from './landscapeSky';
 
 export { heightAt, POOL } from './landscapeTerrain';
@@ -31,6 +31,7 @@ export class Landscape {
   private readonly sky: THREE.ShaderMaterial; private readonly terrain: THREE.ShaderMaterial;
   private readonly staged: THREE.ShaderMaterial[] = [];
   /** Hairline passes offset by whole device pixels, so the 1-px GL lines read as ~2-px strokes. */
+  private readonly rocks: THREE.Mesh;
   private readonly offset: { m: THREE.ShaderMaterial; x: number; y: number }[] = [];
   private readonly ratio = Math.min(devicePixelRatio || 1, 2);
   private readonly camera = new THREE.Vector3(0, .6, 5.6);
@@ -70,6 +71,9 @@ export class Landscape {
     this.addSolid(ground.solids);
     this.addStrokes(ground.strokes, COLONY, .22);
     this.addSparks(ground.lights, LIGHT, 12);
+    this.addSparks(ground.cold, COLD, 10);
+    this.addSparks(ground.dust, COLONY, 5, .35);
+    this.rocks = ground.rocks; this.add(this.rocks); this.disposables.push(this.rocks.geometry, this.rocks.material as THREE.Material);
 
     // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works
     const above = buildSky();
@@ -123,6 +127,7 @@ export class Landscape {
     this.sky.uniforms.uCamWorld.value.copy(camera.matrixWorld);
     this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
     for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
+    updateRocks(this.rocks, time, camera, key, this.fog, this.stage);
     const px = 2 / (innerWidth * this.ratio), py = 2 / (innerHeight * this.ratio);
     for (const o of this.offset) o.m.uniforms.uOffset.value.set(o.x * px, o.y * py);
   }
