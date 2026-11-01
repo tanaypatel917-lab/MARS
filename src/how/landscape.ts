@@ -77,6 +77,7 @@ export class Landscape {
     this.addSolid(above.moons);
     this.addSparks(above.stars, COLONY, 4, .7);
     this.addSparks(above.traffic, COLD, 8);
+    this.addSparks(above.plumes, LIGHT, 6, .5);
     this.addStrokes(above.strokes, COLONY, .3);
   }
 
