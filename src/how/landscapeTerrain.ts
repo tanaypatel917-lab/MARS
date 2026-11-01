@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { fbm } from '../geometry';
+import { groundRelief } from './landscapeGroundRelief';
 
 /**
  * Shape of the colonised Martian landscape under the /how stele — the one place its heights are defined, so the terrain mesh,
@@ -24,7 +25,8 @@ export const HORIZON = -.16;
 /**
  * Height of the landscape at (x, z): the gently falling base plus dune relief — long ridged dunes (1 − |fbm|, so the crests are
  * sharp and the basins between them broad) with finer facets on the crests — flattened into a plain near the stele; everything at
- * or below the pool level is clamped flat so the basins become pools. `relief <= POOL` means the point is on a pool.
+ * or below the pool level is clamped flat so the basins become pools. Craters, ripples and faults come from ./landscapeGroundRelief.
+ * `relief <= POOL` means the point is on a pool.
  */
 export function heightAt(x: number, z: number) {
   const r = Math.hypot(x, z);
@@ -32,7 +34,7 @@ export function heightAt(x: number, z: number) {
   const ridged = 1 - Math.abs(fbm(x * .0165 + 3.1, z * .0135, 1.7, 3)) * 4.5;
   const crest = Math.max(ridged, 0) ** 1.8;
   let relief = (crest * 7.4 + fbm(x * .07, z * .07 + 9, 4.2, 3) * 1.4 * (.3 + crest)) * THREE.MathUtils.smoothstep(r, 6, 17);
-  relief = Math.max(relief, POOL);
+  relief = Math.max(relief + groundRelief(x, z), POOL);
   return { y: base + relief, relief };
 }
 
