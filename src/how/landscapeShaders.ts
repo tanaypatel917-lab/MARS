@@ -9,7 +9,7 @@ import { noise } from '../shaders';
 
 /** Sky colour along a world direction: fog at the horizon, #050407 at the zenith, a dusty 3-octave breakup near the ground. */
 export const skyChunk = /* glsl */`
-vec3 sky(vec3 d,vec3 fog,float hz,float t,vec3 key){
+vec3 sky(vec3 d,vec3 fog,float hz,float t,vec3 key,float stage){
  float e=d.y;
  float n=0.,a=.5;vec3 q=d*vec3(2.6,5.2,2.6)+vec3(t*.012,0.,t*.008);for(int i=0;i<3;i++){n+=a*vnoise(q);q=q*2.1+vec3(1.3,7.7,3.1);a*=.5;}
  float k=smoothstep(hz,hz+.26,e+(n-.44)*.05);k=pow(k,.42);
@@ -20,6 +20,8 @@ vec3 sky(vec3 d,vec3 fog,float hz,float t,vec3 key){
  /* the key light glows through the dust low in the sky on its side */
  float toward=max(0.,dot(normalize(vec3(d.x,0.,d.z)),normalize(vec3(key.x,0.,key.z))));
  c+=(fog*1.4+vec3(.03,.02,.012))*pow(toward,7.)*exp(-pow((e-hz-.03)/.11,2.))*.75;
+ /* the settlement's light dome: a warm glow hugging the horizon that grows with the colonisation stage */
+ c+=(fog*.9+vec3(.05,.025,.01))*exp(-pow(max(0.,e-hz)/.075,1.4))*(.07+.16*stage*.25)*(.8+.2*n);
  c*=1.-.4*smoothstep(hz,hz-.25,e);
  return c;}
 `;
@@ -30,10 +32,10 @@ void main(){vUv=uv;vec4 v=uProjInv*vec4(position.xy,1.,1.);vRay=mat3(uCamWorld)*
 `;
 export const skyFragment = /* glsl */`
 precision highp float;
-uniform vec3 uFog;uniform vec3 uKey;uniform float uTime;uniform float uHorizon;varying vec3 vRay;varying vec2 vUv;
+uniform vec3 uFog;uniform vec3 uKey;uniform float uTime;uniform float uHorizon;uniform float uStage;varying vec3 vRay;varying vec2 vUv;
 ${noise}
 ${skyChunk}
-void main(){vec3 d=normalize(vRay);vec3 c=sky(d,uFog,uHorizon,uTime,uKey);
+void main(){vec3 d=normalize(vRay);vec3 c=sky(d,uFog,uHorizon,uTime,uKey,uStage);
  float vignette=1.-.28*pow(length((vUv-vec2(.5,.42))*vec2(1.,.9)),1.8);c*=vignette;
  c=pow(max(c,0.),vec3(1./2.2))+(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.02;
  gl_FragColor=vec4(max(c,0.),1.);}
@@ -46,11 +48,11 @@ void main(){vec3 d=normalize(vRay);vec3 c=sky(d,uFog,uHorizon,uTime,uKey);
  */
 export const terrainVertex = /* glsl */`
 attribute float aRelief;attribute float aBirth;uniform float uStage;varying vec3 vWorld;varying float vRelief;varying float vBorn;
-void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vRelief=aRelief;vBorn=step(aBirth-.01,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
+void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vRelief=aRelief;vBorn=step(aBirth-.4,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
 `;
 export const terrainFragment = /* glsl */`
 precision highp float;
-uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uniform float uPool;uniform float uFogK;uniform float uHorizon;uniform float uFogH;uniform float uBase;
+uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uniform float uPool;uniform float uFogK;uniform float uHorizon;uniform float uFogH;uniform float uBase;uniform float uStage;
 varying vec3 vWorld;varying float vRelief;varying float vBorn;
 ${noise}
 ${skyChunk}
@@ -68,8 +70,8 @@ void main(){
  c+=pow(max(0.,dot(n,normalize(key+eye))),28.)*uFog*.35*smoothstep(1.,4.,vRelief);
  /* pools: flat, mirroring the sky with a Fresnel weight, a hard key glint */
  vec3 up=vec3(0.,1.,0.);float cosE=max(0.,eye.y);float f=.04+.96*pow(1.-cosE,5.);
- vec3 mirrored=sky(reflect(-eye,up),uFog,uHorizon,uTime,key);
- vec3 h=normalize(key+eye);float spec=pow(max(0.,dot(up,h)),420.)*1.2+pow(max(0.,dot(up,h)),14.)*.03;
+ vec3 mirrored=sky(reflect(-eye,up),uFog,uHorizon,uTime,key,uStage);
+ vec3 h=normalize(key+eye);float spec=pow(max(0.,dot(up,h)),420.)*1.2+pow(max(0.,dot(up,h)),14.)*.012;
  vec3 pc=vec3(.0025,.002,.0035)+mix(mirrored,uFog*.55,.4)*f*1.1+spec*vec3(1.,.93,.84)*(.2+.8*f);
  float pool=1.-smoothstep(uPool+.005,uPool+.05,vRelief);
  c=mix(c,pc,pool);
@@ -77,7 +79,7 @@ void main(){
  /* haze toward the sky behind the fragment, so the far terrain dissolves into it wherever the horizon falls */
  float thin=exp(-max(0.,vWorld.y-uBase)/uFogH);
  float haze=1.-exp(-dist*dist*uFogK*thin);haze=mix(haze,1.,(1.-haze)*(1.-smoothstep(uPool,uPool+2.5,vRelief))*.1);
- c=mix(c,sky(-eye,uFog,uHorizon,uTime,key),haze);
+ c=mix(c,sky(-eye,uFog,uHorizon,uTime,key,uStage),haze);
  float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;
  gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))+grain,1.);}
 `;
@@ -95,7 +97,7 @@ void main(){
  vec3 p=position;float life=0.;
  if(aRise>0.){life=fract(uTime*.03*aRise+aPhase);float s=life*life;p.y+=s*90.;p.x+=s*10.*sin(aPhase*6.2832);p.z+=s*10.*cos(aPhase*6.2832);}
  vec4 w=modelMatrix*vec4(p,1.);vWorld=w.xyz;
- float grow=clamp((uStage-aBirth)*2.4-aT*1.2,0.,1.);grow=grow*grow*(3.-2.*grow);
+ float grow=clamp((uStage-aBirth+1.)*1.6-aT*.6,0.,1.);grow=grow*grow*(3.-2.*grow);
  vFade=grow*(aRise>0.?smoothstep(0.,.08,life)*(1.-smoothstep(.55,.95,life)):1.);
  vPhase=aPhase;
  gl_Position=projectionMatrix*viewMatrix*w;
@@ -104,7 +106,7 @@ void main(){
 `;
 export const colonyFragment = /* glsl */`
 precision highp float;
-uniform vec3 uColor;uniform vec3 uFog;uniform vec3 uKey;uniform vec3 uCamera;uniform float uOpacity;uniform float uFogK;uniform float uPoint;uniform float uTime;uniform float uHorizon;uniform float uFogH;uniform float uBase;
+uniform vec3 uColor;uniform vec3 uFog;uniform vec3 uKey;uniform vec3 uCamera;uniform float uOpacity;uniform float uFogK;uniform float uPoint;uniform float uTime;uniform float uHorizon;uniform float uFogH;uniform float uBase;uniform float uStage;
 varying vec3 vWorld;varying float vFade;varying float vPhase;
 ${noise}
 ${skyChunk}
@@ -112,6 +114,6 @@ void main(){
  if(vFade<.002)discard;
  float m=1.;if(uPoint>.5){float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;m=(exp(-r*r*26.)*1.6+exp(-r*r*3.2)*.09)*(.82+.18*sin(uTime*(2.+vPhase*3.)+vPhase*40.));}
  vec3 toEye=uCamera-vWorld;float dist=length(toEye);float thin=exp(-max(0.,vWorld.y-uBase)/uFogH);float haze=1.-exp(-dist*dist*uFogK*thin);
- vec3 c=mix(uColor,sky(-toEye/dist,uFog,uHorizon,uTime,uKey)*2.2+.004,haze*.9);
+ vec3 c=mix(uColor,sky(-toEye/dist,uFog,uHorizon,uTime,uKey,uStage)*2.2+.004,haze*.9);
  gl_FragColor=vec4(pow(c,vec3(1./2.2)),uOpacity*m*vFade*(1.-haze*.92));}
 `;

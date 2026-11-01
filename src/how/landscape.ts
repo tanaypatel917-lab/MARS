@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import * as shader from './landscapeShaders';
-import { EXTENT, BASE, POOL, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt, siteOnLand, seeded } from './landscapeTerrain';
-import { Strokes, Sparks } from './landscapeKit';
+import { EXTENT, BASE, POOL, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt } from './landscapeTerrain';
+import { buildColony } from './landscapeColony';
+import { buildGround } from './landscapeGround';
+import { buildSky } from './landscapeSky';
 
 export { heightAt, POOL } from './landscapeTerrain';
 
@@ -17,7 +19,7 @@ export { heightAt, POOL } from './landscapeTerrain';
 export const FOG = ['#3a3220', '#1d3838', '#2f4433', '#3a1a12', '#2a0c0e'];
 
 const KEY = new THREE.Vector3(-.62, .5, .6).normalize();
-const COLONY = 0xece6dc, LIGHT = 0xffb27a;
+const COLONY = 0xece6dc, LIGHT = 0xffb27a, COLD = 0x9fc4d8;
 
 export class Landscape {
   readonly fog = new THREE.Color(FOG[0]);
@@ -37,7 +39,7 @@ export class Landscape {
 
     // sky: a background quad that reconstructs the view ray per pixel so the gradient stays on the world horizon as the camera orbits
     this.sky = new THREE.ShaderMaterial({ vertexShader: shader.skyVertex, fragmentShader: shader.skyFragment, uniforms: {
-      uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uFog: { value: this.fog }, uKey: { value: this.key }, uTime: { value: 0 }, uHorizon: { value: HORIZON } },
+      uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uFog: { value: this.fog }, uKey: { value: this.key }, uTime: { value: 0 }, uStage: { value: this.stage }, uHorizon: { value: HORIZON } },
       depthTest: false, depthWrite: false });
     const skyGeometry = new THREE.PlaneGeometry(2, 2);
     const sky = new THREE.Mesh(skyGeometry, this.sky);
@@ -52,11 +54,28 @@ export class Landscape {
     terrain.frustumCulled = false;
     this.add(terrain); this.disposables.push(terrainGeometry, this.terrain);
 
-    // colony hairlines and window lights
-    const { lines, lights } = colony();
-    this.addStrokes(lines, COLONY, .45);
-    this.addSparks(lights, LIGHT, 16);
     this.staged.push(this.terrain);
+
+    // the colony, stage by stage (./landscapeColony): hairlines, warm window lights, cold navigation lights, hull/pad plates
+    const colony = buildColony();
+    this.addStrokes(colony.lines, COLONY, .45);
+    this.addSparks(colony.lights, LIGHT, 16);
+    this.addSparks(colony.cold, COLD, 10);
+    this.addSolid(colony.solids);
+
+    // the ground's detail (./landscapeGround): boulders, outcrops, landing pads, tyre tracks, survey stakes, beacons
+    const ground = buildGround();
+    this.addSolid(ground.solids);
+    this.addStrokes(ground.strokes, COLONY, .18);
+    this.addSparks(ground.lights, LIGHT, 9);
+
+    // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works
+    const above = buildSky();
+    this.addSolid(above.mesas);
+    this.addSolid(above.moons);
+    this.addSparks(above.stars, COLONY, 3, .55);
+    this.addSparks(above.traffic, COLD, 8);
+    this.addStrokes(above.strokes, COLONY, .3);
   }
 
   private shared() {
@@ -94,7 +113,7 @@ export class Landscape {
     camera.updateMatrixWorld();
     this.sky.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
     this.sky.uniforms.uCamWorld.value.copy(camera.matrixWorld);
-    this.sky.uniforms.uTime.value = time;
+    this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
     for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
   }
 
@@ -125,29 +144,4 @@ function grid(segments: number) {
   g.setAttribute('aRelief', new THREE.BufferAttribute(relief, 1));
   g.setIndex(index);
   return g;
-}
-
-/** Hairline colony on the land: domes (three latitude rings + a meridian), masts, a landing ring, lit tracks; warm window lights. */
-function colony() {
-  const lines = new Strokes(), lights = new Sparks(); const rand = seeded(11);
-  const dome = (sx: number, sz: number, r: number, birth: number) => {
-    const [x, y, z] = siteOnLand(sx, sz, .6);
-    for (const k of [.0, .45, .78]) lines.circle([x, y + r * k, z], r * Math.sqrt(1 - k * k), birth);
-    lines.arc([x, y, z], r, birth, 0, Math.PI, 'z', 12);
-    for (let i = 0; i < 5; i++) { const a = rand() * Math.PI * 2; lights.add([x + Math.cos(a) * r * .8, y + r * .25 + rand() * r * .3, z + Math.sin(a) * r * .8], birth + .3, .9); }
-  };
-  const mast = (sx: number, sz: number, h: number, birth: number) => { const [x, y, z] = siteOnLand(sx, sz, .6); lines.seg([x, y, z], [x, y + h, z], birth); lights.add([x, y + h, z], birth + .2, .8); };
-  const sites: [number, number, number, number][] = [[-38, -52, 6, 1], [-30, -58, 4, 2], [-46, -47, 3.2, 2], [52, -40, 5, 1], [58, -34, 3.4, 3], [20, -70, 7, 2], [27, -64, 3.6, 3], [-60, 20, 4.5, 2], [64, 30, 5.2, 3], [-20, 72, 5.5, 3], [-12, 66, 3, 3], [26, -22, 2.4, 0], [-24, 28, 2.8, 1], [34, 18, 2.2, 2], [-30, -26, 3, 1], [14, -34, 2.6, 0], [40, 2, 2.2, 2], [-36, 6, 2.4, 1], [6, 40, 2.8, 2], [-14, -40, 2, 1]];
-  for (const [x, z, r, b] of sites) dome(x, z, r, b);
-  for (const [x, z, h, b] of [[-24, -60, 11, 1], [48, -50, 14, 2], [10, -74, 9, 2], [66, 22, 10, 3], [-66, 12, 12, 2], [-4, 78, 8, 3], [30, -26, 5, 0], [-28, 24, 6, 1], [-34, -30, 7, 1], [10, -38, 6, 0], [-6, 44, 5, 2]]) mast(x, z, h, b);
-  const ring = (cx: number, cz: number, r: number, birth: number) => { const [x, y, z] = siteOnLand(cx, cz, .6); lines.circle([x, y + .15, z], r, birth, 'y', 48); };
-  ring(36, -58, 5, 1); ring(36, -58, 3.4, 1);
-  const track = (p: (t: number) => readonly [number, number], n: number, birth: number, every: number) => {
-    const pts: [number, number, number][] = [];
-    for (let i = 0; i <= n; i++) { const [x, z] = p(i / n); pts.push([x, heightAt(x, z).y + .1, z]); if (i % every === 0) lights.add([x, heightAt(x, z).y + .3, z], birth + .4 + i / n * .4, .7); }
-    lines.poly(pts, birth);
-  };
-  track(t => [THREE.MathUtils.lerp(-40, 36, t) + Math.sin(t * 6) * 4, THREE.MathUtils.lerp(-52, -58, t)], 60, 2, 6);
-  track(t => [THREE.MathUtils.lerp(-34, 30, t) + Math.sin(t * 4 + 1) * 3, THREE.MathUtils.lerp(-24, -30, t) + Math.cos(t * 3) * 2], 48, 1, 4);
-  return { lines: lines.geometry(), lights: lights.geometry() };
 }
