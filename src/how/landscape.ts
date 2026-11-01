@@ -37,7 +37,7 @@ export class Landscape {
 
     // sky: a background quad that reconstructs the view ray per pixel so the gradient stays on the world horizon as the camera orbits
     this.sky = new THREE.ShaderMaterial({ vertexShader: shader.skyVertex, fragmentShader: shader.skyFragment, uniforms: {
-      uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uFog: { value: this.fog }, uKey: { value: this.key }, uTime: { value: 0 }, uHorizon: { value: HORIZON } },
+      uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uFog: { value: this.fog }, uKey: { value: this.key }, uTime: { value: 0 }, uStage: { value: this.stage }, uHorizon: { value: HORIZON } },
       depthTest: false, depthWrite: false });
     const skyGeometry = new THREE.PlaneGeometry(2, 2);
     const sky = new THREE.Mesh(skyGeometry, this.sky);
@@ -94,7 +94,7 @@ export class Landscape {
     camera.updateMatrixWorld();
     this.sky.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
     this.sky.uniforms.uCamWorld.value.copy(camera.matrixWorld);
-    this.sky.uniforms.uTime.value = time;
+    this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
     for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
   }
 
