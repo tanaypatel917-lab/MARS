@@ -6,7 +6,7 @@ import { heightAt, isLand, seeded, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON 
 import { Strokes, Sparks, Solids, type Vec3 } from './landscapeKit';
 import { skyChunk } from './landscapeShaders';
 import { FOG } from './landscape';
-import { groundRelief, CRATERS } from './landscapeGroundRelief';
+import { CRATERS } from './landscapeGroundRelief';
 
 /**
  * The ground's dressing under the /how stele — what makes the plains read as a worked, walked-on surface rather than a
@@ -39,7 +39,7 @@ export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.Bu
 }
 
 /** Ground height with the fine relief. NOTE for wiring: once `heightAt` adds groundRelief itself, drop the second term. */
-const ground = (x: number, z: number) => heightAt(x, z).y + groundRelief(x, z);
+const ground = (x: number, z: number) => heightAt(x, z).y;
 const groundNormal = (x: number, z: number, e = .5) => new THREE.Vector3(ground(x - e, z) - ground(x + e, z), 2 * e, ground(x, z - e) - ground(x, z + e)).normalize();
 const UP = new THREE.Vector3(0, 1, 0), TAU = Math.PI * 2;
 type Site = { x: number; z: number; birth: number };
