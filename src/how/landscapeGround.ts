@@ -1,6 +1,11 @@
 import * as THREE from 'three';
-import { heightAt, isLand, seeded, POOL } from './landscapeTerrain';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { fbm } from '../geometry';
+import { noise } from '../shaders';
+import { heightAt, isLand, seeded, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON } from './landscapeTerrain';
 import { Strokes, Sparks, Solids, type Vec3 } from './landscapeKit';
+import { skyChunk } from './landscapeShaders';
+import { FOG } from './landscape';
 import { groundRelief, CRATERS } from './landscapeGroundRelief';
 
 /**
@@ -9,31 +14,34 @@ import { groundRelief, CRATERS } from './landscapeGroundRelief';
  * scorched landing terraces of the spaceport sites, and the faint marks of use between them — paired rover tracks routed
  * around the pools, dotted footpaths around the habitats, survey stake rows, beacon stakes and runway lights.
  *
- *   solids  → landscape.addSolid(solids)                 boulders, outcrops, pads (aRelief 2 … 5 basalt → rust; pads ≤ POOL, glossy)
+ *   rocks   → scene.add(rocks); updateRocks(rocks, t, camera, key, landscape.fog, landscape.stage) each frame after landscape.update
+ *              ~250 boulders + ~22 strata outcrops as smooth facetted stones (the hero bodies' shard construction) with their own
+ *              beauty-pass shader (per-pixel basalt relief, basalt → rust by aRelief, dust on top, fogged like the terrain)
+ *   solids  → landscape.addSolid(solids)                 the scorched landing pads (flat 12-gons, aRelief ≤ POOL so they read glossy)
  *   strokes → landscape.addStrokes(strokes, 0xece6dc, .18) tracks, footpaths, stake rows, beacon stakes, runway edge strips
  *   lights  → landscape.addSparks(lights, 0xffb27a, 9)    crater-field beacons (birth 0 … 1), pad rim and runway lights (2 … 4)
  *
  * Everything sits on `ground()` = heightAt + groundRelief, so it stays seated once the terrain gets the relief too.
  */
-export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry } {
-  const solids = new Solids(), strokes = new Strokes(), lights = new Sparks();
+export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; rocks: THREE.Mesh } {
+  const solids = new Solids(), strokes = new Strokes(), lights = new Sparks(), rocks = new Rocks();
   const rand = seeded(2026);
-  const fields = boulders(solids, rand);
-  outcrops(solids, rand);
+  const fields = boulders(rocks, rand);
+  outcrops(rocks, rand);
   for (const p of PADS) pad(solids, p);
   tracks(strokes, fields, rand);
   footpaths(strokes, rand);
   stakes(strokes, rand);
   beacons(strokes, lights, rand);
   runways(strokes, lights, rand);
-  return { solids: solids.geometry(), strokes: strokes.geometry(), lights: lights.geometry() };
+  const mesh = new THREE.Mesh(rocks.geometry(), rockMaterial()); mesh.frustumCulled = false;
+  return { solids: solids.geometry(), strokes: strokes.geometry(), lights: lights.geometry(), rocks: mesh };
 }
 
 /** Ground height with the fine relief. NOTE for wiring: once `heightAt` adds groundRelief itself, drop the second term. */
 const ground = (x: number, z: number) => heightAt(x, z).y + groundRelief(x, z);
 const groundNormal = (x: number, z: number, e = .5) => new THREE.Vector3(ground(x - e, z) - ground(x + e, z), 2 * e, ground(x, z - e) - ground(x, z + e)).normalize();
 const UP = new THREE.Vector3(0, 1, 0), TAU = Math.PI * 2;
-const hash3 = (x: number, y: number, z: number) => { const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return h - Math.floor(h); };
 type Site = { x: number; z: number; birth: number };
 
 /** Spaceport terraces: [x, z, radius, birth]. The stage-0 lander pad, two settlement pads, two launch pads. */
@@ -44,31 +52,94 @@ const HABITATS: readonly (readonly [number, number, number, number])[] = [[-38, 
 const craterBirth = (i: number) => i === 0 ? 0 : Math.hypot(CRATERS[i][0], CRATERS[i][1]) < 80 ? 1 : 2;
 const nearPad = (x: number, z: number, extra = 3) => PADS.some(p => Math.hypot(x - p[0], z - p[1]) < p[2] * 1.3 + extra);
 
-// ─── solids ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── rocks ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const ICO = new THREE.IcosahedronGeometry(1, 0), DODE = new THREE.DodecahedronGeometry(1, 0);
-
-/** A low-poly boulder: a jittered icosahedron / dodecahedron, squashed, seated on the ground and tilted with it. */
-function boulder(solids: Solids, x: number, z: number, size: number, seed: number, relief: number, birth: number, rand: () => number) {
-  const kind = rand() < .62 ? ICO : DODE;
-  const sx = size * (.8 + rand() * .4), sz = size * (.8 + rand() * .4), sy = size * (.55 + rand() * .4);
-  const q = new THREE.Quaternion().setFromUnitVectors(UP, groundNormal(x, z)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, rand() * TAU));
-  const m = new THREE.Matrix4().compose(new THREE.Vector3(x, ground(x, z) + sy - .2, z), q, new THREE.Vector3(sx, sy, sz));
-  const p = kind.getAttribute('position'), v = new THREE.Vector3(), out: Vec3[] = [];
-  for (let i = 0; i < p.count; i++) {
-    v.fromBufferAttribute(p, i);
-    v.multiplyScalar(.74 + .5 * hash3(Math.round(v.x * 40), Math.round(v.y * 40), Math.round(v.z * 40) + seed)).applyMatrix4(m);
-    out.push([v.x, v.y, v.z]);
+/**
+ * Rocks are built the way the hero bodies are (src/geometry.ts shardPoint): a tessellated sphere remapped radially onto the
+ * intersection of random half-spaces (large flat facets, sharp ridges), the underside worn back toward a rounded form, fbm
+ * wear on top, smooth normals pulled toward the owning facet so the ridges stay crisp. The shader then adds per-pixel
+ * basalt relief (bump from the same noise family as the planet's bake) and lights it like the planet's beauty pass.
+ */
+function rockShape(detail: number, rand: () => number) {
+  const g = mergeVertices(new THREE.IcosahedronGeometry(1, detail), 1e-5);
+  const facets: { n: THREE.Vector3; d: number }[] = [];
+  for (let k = 8 + Math.floor(rand() * 6); k > 0; k--) {
+    const u = rand() * 2 - 1, a = rand() * TAU, s = Math.sqrt(1 - u * u);
+    facets.push({ n: new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)), d: .72 + rand() * .26 });
   }
-  for (let i = 0; i < out.length; i += 3) solids.tri(out[i], out[i + 1], out[i + 2], relief, birth);
+  const stretch = new THREE.Vector3(1 + rand() * .5, .62 + rand() * .3, .85 + rand() * .3), salt = rand() * 100;
+  const pos = g.attributes.position as THREE.BufferAttribute, owners: THREE.Vector3[] = [], worns: number[] = [];
+  const dir = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    dir.fromBufferAttribute(pos, i).normalize();
+    let r = 1.3, best: THREE.Vector3 | undefined;
+    for (const f of facets) { const k = dir.dot(f.n); if (k > 1e-3) { const t = f.d / k; if (t < r) { r = t; best = f.n; } } }
+    r = Math.min(r, 1.2);
+    const worn = fade(THREE.MathUtils.clamp((-.1 - dir.y) / .6, 0, 1));
+    r = THREE.MathUtils.lerp(r, .88, worn * .6);
+    r *= 1 + fbm(dir.x * 2.2 + salt, dir.y * 2.2, dir.z * 2.2, 3) * .05 + fbm(dir.x * 7 + salt, dir.y * 7, dir.z * 7, 2) * .012;
+    pos.setXYZ(i, dir.x * r * stretch.x, dir.y * r * stretch.y, dir.z * r * stretch.z);
+    owners.push(best ?? dir.clone()); worns.push(worn);
+  }
+  g.computeVertexNormals();
+  const nor = g.attributes.normal as THREE.BufferAttribute, n = new THREE.Vector3(), f = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    n.fromBufferAttribute(nor, i); f.copy(owners[i]).divide(stretch).normalize();
+    n.lerp(f, .45 * (1 - worns[i])).normalize(); nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  return g;
+}
+const fade = (t: number) => t * t * (3 - 2 * t);
+
+/** Collects placed rocks into one indexed geometry: smooth normals, the rock-local frame for the shader's bump, tint, birth. */
+class Rocks {
+  private readonly pos: number[] = []; private readonly nor: number[] = []; private readonly loc: number[] = []; private readonly seed: number[] = [];
+  private readonly relief: number[] = []; private readonly birth: number[] = []; private readonly index: number[] = [];
+  tris = 0; count = 0;
+  add(detail: number, center: THREE.Vector3, q: THREE.Quaternion, scale: THREE.Vector3, relief: number, birth: number, rand: () => number) {
+    const g = rockShape(detail, rand), seed = rand() * 10;
+    const m = new THREE.Matrix4().compose(center, q, scale), nm = new THREE.Matrix3().getNormalMatrix(m);
+    const p = g.attributes.position as THREE.BufferAttribute, n = g.attributes.normal as THREE.BufferAttribute, idx = g.index!;
+    const base = this.pos.length / 3, size = Math.max(scale.x, scale.y, scale.z), v = new THREE.Vector3(), w = new THREE.Vector3();
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i).applyMatrix4(m); this.pos.push(v.x, v.y, v.z);
+      this.loc.push((v.x - center.x) / size, (v.y - center.y) / size, (v.z - center.z) / size);
+      w.fromBufferAttribute(n, i).applyMatrix3(nm).normalize(); this.nor.push(w.x, w.y, w.z);
+      this.seed.push(seed); this.relief.push(relief); this.birth.push(birth);
+    }
+    for (let i = 0; i < idx.count; i++) this.index.push(idx.getX(i) + base);
+    this.tris += idx.count / 3; this.count++; g.dispose();
+  }
+  geometry() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    g.setAttribute('aLocal', new THREE.Float32BufferAttribute(this.loc, 3));
+    g.setAttribute('aSeed', new THREE.Float32BufferAttribute(this.seed, 1));
+    g.setAttribute('aRelief', new THREE.Float32BufferAttribute(this.relief, 1));
+    g.setAttribute('aBirth', new THREE.Float32BufferAttribute(this.birth, 1));
+    g.setIndex(this.index);
+    return g;
+  }
+}
+
+/** Tessellation by size (three 0.180 icosahedron detail is linear: 20·(d+1)² tris): small rubble 80 tris, big rocks and outcrops 320. */
+const detailFor = (size: number) => size < 1.3 ? 1 : size < 2.4 ? 2 : 3;
+
+/** A boulder, half buried, seated on the ground and tilted with it; the long axis turned at random. */
+function boulder(rocks: Rocks, x: number, z: number, size: number, relief: number, birth: number, rand: () => number) {
+  const scale = new THREE.Vector3(size * (.8 + rand() * .4), size * (.55 + rand() * .4), size * (.8 + rand() * .4));
+  const q = new THREE.Quaternion().setFromUnitVectors(UP, groundNormal(x, z)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, rand() * TAU))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (rand() - .5) * .5));
+  rocks.add(detailFor(size), new THREE.Vector3(x, ground(x, z) - .2 + scale.y * .6, z), q, scale, relief, birth, rand);
 }
 
 /** ~250 boulders banked on the crater rims and aprons, and strewn at the dune feet near the pool shores. */
-function boulders(solids: Solids, rand: () => number): Site[] {
-  let n = 0, seed = 0;
+function boulders(rocks: Rocks, rand: () => number): Site[] {
+  let n = 0;
   const place = (x: number, z: number, size: number, birth: number, margin: number) => {
     if (Math.hypot(x, z) < 24 || !isLand(x, z, margin) || nearPad(x, z, 1)) return;
-    boulder(solids, x, z, size, ++seed, 2 + rand() * 3, birth, rand); n++;
+    boulder(rocks, x, z, size, 2 + rand() * 3, birth, rand); n++;
   };
   for (const c of CRATERS) {
     const count = Math.round(7 + c[2] * .75);
@@ -97,39 +168,87 @@ function boulders(solids: Solids, rand: () => number): Site[] {
   return fields;
 }
 
-/** Bake a convex piece (CCW faces, quads or triangles) through a matrix. */
-function piece(solids: Solids, verts: Vec3[], faces: number[][], m: THREE.Matrix4, relief: number, birth: number) {
-  const w = verts.map(p => { const v = new THREE.Vector3(...p).applyMatrix4(m); return [v.x, v.y, v.z] as Vec3; });
-  for (const f of faces) for (let i = 1; i + 1 < f.length; i++) solids.tri(w[f[0]], w[f[i]], w[f[i + 1]], relief, birth);
-}
-const BOX: Vec3[] = [[-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1], [-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]];
-const BOX_FACES = [[0, 1, 2, 3], [4, 7, 6, 5], [3, 2, 6, 7], [1, 0, 4, 5], [2, 1, 5, 6], [0, 3, 7, 4]];
-const WEDGE: Vec3[] = [[-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1], [-.3, 1, -1], [-.3, 1, 1]];
-const WEDGE_FACES = [[0, 1, 2, 3], [1, 0, 4], [3, 2, 5], [2, 1, 4, 5], [0, 3, 5, 4]];
-
-/** 15 … 25 strata outcrops on the crests: two or three tilted slabs and a wedge, dipping the same way, half buried. */
-function outcrops(solids: Solids, rand: () => number) {
+/** 15 … 25 strata outcrops on the crests: one or two long tilted slabs dipping the same way, half buried, plus a shoulder stone. */
+function outcrops(rocks: Rocks, rand: () => number) {
   const placed: [number, number][] = [];
   for (let tries = 0; tries < 6000 && placed.length < 22; tries++) {
     const a = rand() * TAU, r = 30 + Math.sqrt(rand()) * 108, x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (heightAt(x, z).relief < 4.6 || nearPad(x, z, 8) || placed.some(p => Math.hypot(p[0] - x, p[1] - z) < 16)) continue;
     if (CRATERS.some(c => Math.hypot(c[0] - x, c[1] - z) < c[2] * 1.3)) continue;
     placed.push([x, z]);
-    const yaw = rand() * TAU, dip = .22 + rand() * .42, L = 3 + rand() * 5, relief = 1.3 + rand() * 1.4;
+    const yaw = rand() * TAU, dip = .25 + rand() * .4, L = 3 + rand() * 5, relief = 1.3 + rand() * 1.4;
     const base = new THREE.Quaternion().setFromUnitVectors(UP, groundNormal(x, z, 1.2)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
-    const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(base), along = new THREE.Vector3(1, 0, 0).applyQuaternion(base);
-    const pieces = 2 + (rand() < .55 ? 1 : 0);
-    let off = -(pieces - 1) * .5;
-    for (let k = 0; k < pieces; k++, off += 1) {
-      const len = L * (k === 0 ? 1 : .55 + rand() * .35), T = .25 + len * .06 + rand() * .2, W = .7 + rand() * .9;
-      const shift = dir.clone().multiplyScalar(off * W * 2.2).addScaledVector(along, (rand() - .5) * len * .3);
+    const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(base);
+    const slabs = 1 + (rand() < .6 ? 1 : 0);
+    for (let k = 0; k < slabs; k++) {
+      const len = L * (k === 0 ? 1 : .55 + rand() * .35), T = .35 + len * .07 + rand() * .25, W = .8 + rand() * 1;
+      const shift = dir.clone().multiplyScalar((k - (slabs - 1) * .5) * W * 2.4);
       const px = x + shift.x, pz = z + shift.z;
       const q = base.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), dip + (rand() - .5) * .14));
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(px, ground(px, pz) + T * .4 + len * .5 * Math.sin(dip) * .35, pz), q, new THREE.Vector3(len * .5, T, W));
-      if (k === pieces - 1 && pieces === 3) piece(solids, WEDGE, WEDGE_FACES, m, relief, 0); else piece(solids, BOX, BOX_FACES, m, relief, 0);
+      rocks.add(3, new THREE.Vector3(px, ground(px, pz) + T * .3 + len * .5 * Math.sin(dip) * .3, pz), q, new THREE.Vector3(len * .5, T, W), relief, 0, rand);
     }
+    const sx = x - dir.x * (W_SHOULDER + L * .3), sz = z - dir.z * (W_SHOULDER + L * .3);
+    if (isLand(sx, sz, .3)) boulder(rocks, sx, sz, 1 + rand() * 1.4, relief + .8, 0, rand);
   }
 }
+const W_SHOULDER = 2;
+
+export const rockVertex = /* glsl */`
+attribute vec3 aLocal;attribute float aSeed;attribute float aRelief;attribute float aBirth;uniform float uStage;
+varying vec3 vWorld;varying vec3 vNormal;varying vec3 vLocal;varying float vSeed;varying float vRelief;varying float vBorn;
+void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vNormal=normalize(mat3(modelMatrix)*normal);vLocal=aLocal;vSeed=aSeed;vRelief=aRelief;vBorn=step(aBirth-.01,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
+`;
+/**
+ * The planet's beauty pass brought down to the ground: per-pixel basalt relief (fbm + ridged, finite-differenced into the
+ * smooth normal), basalt→rust albedo by aRelief with pale dust settled on the up-facing surfaces, the key with a soft
+ * terminator, the home page's violet wrap, the fog's dusty sky light on the tops, a satin key specular, a fog rim, and the
+ * same haze toward the sky as the terrain so the rocks sink into the distance with it.
+ */
+export const rockFragment = /* glsl */`
+precision highp float;
+uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uniform float uFogK;uniform float uHorizon;uniform float uFogH;uniform float uBase;
+varying vec3 vWorld;varying vec3 vNormal;varying vec3 vLocal;varying float vSeed;varying float vRelief;varying float vBorn;
+${noise}
+${skyChunk}
+float relief(vec3 s){return fbm(s*2.6)*.62+ridged(s*7.)*.3+fbm(s*17.)*.06;}
+void main(){
+ if(vBorn<.5)discard;
+ vec3 n=normalize(vNormal);vec3 toEye=uCamera-vWorld;float dist=length(toEye);vec3 eye=toEye/dist;vec3 key=normalize(uKey);
+ vec3 s=vLocal*1.4+vec3(vSeed*7.3,vSeed*2.1,vSeed*5.7);
+ vec3 t=normalize(cross(n,abs(n.y)<.95?vec3(0,1,0):vec3(1,0,0)));vec3 b=cross(n,t);
+ float e=.03;float h0=relief(s);float hx=relief(s+t*e);float hy=relief(s+b*e);
+ float bump=mix(5.5,1.5,smoothstep(20.,120.,dist));
+ vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*bump);
+ float lowland=smoothstep(-1.,5.,vRelief);
+ vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.36,.19,.12);
+ float dust=smoothstep(.15,.85,pn.y)*smoothstep(.3,.75,fbm(s*2.+5.))*lowland;
+ vec3 albedo=mix(basalt,rust,lowland*(.5+.5*h0));albedo=mix(albedo,pale,dust*.55);albedo*=(.7+.6*h0)*.42;
+ float diffuse=max(0.,dot(pn,key));float terminator=smoothstep(-.08,.35,dot(n,key));
+ float wrap=pow(max(0.,dot(pn,normalize(vec3(.6,.5,.75)))),1.4);
+ vec3 c=albedo*(diffuse*terminator*.85*vec3(1.,.93,.84)+.004)+albedo*wrap*vec3(.07,.11,.30)*.25;
+ c+=albedo*uFog*(.35+.65*max(pn.y,0.))*.9;
+ c+=pow(max(0.,dot(reflect(-key,pn),eye)),24.)*.05*vec3(1.,.93,.84)*(.4+.6*lowland);
+ c+=uFog*pow(1.-max(0.,dot(n,eye)),4.)*.22;
+ c=c/(1.+c*.25);
+ float thin=exp(-max(0.,vWorld.y-uBase)/uFogH);float haze=1.-exp(-dist*dist*uFogK*thin);
+ c=mix(c,sky(-eye,uFog,uHorizon,uTime,key),haze);
+ float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;
+ gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))+grain,1.);}
+`;
+
+function rockMaterial() {
+  return new THREE.ShaderMaterial({ vertexShader: rockVertex, fragmentShader: rockFragment, uniforms: {
+    uKey: { value: new THREE.Vector3(-.62, .5, .6).normalize() }, uCamera: { value: new THREE.Vector3(0, .6, 5.6) }, uFog: { value: new THREE.Color(FOG[0]) },
+    uTime: { value: 0 }, uStage: { value: 0 }, uFogK: { value: FOG_K }, uFogH: { value: FOG_SCALE_HEIGHT }, uBase: { value: BASE }, uHorizon: { value: HORIZON } } });
+}
+
+/** Per frame, right after `landscape.update(time, camera, key)`: the rocks share the landscape's fog, key, camera and stage. */
+export function updateRocks(rocks: THREE.Mesh, time: number, camera: THREE.Camera, key: THREE.Vector3, fog: THREE.Color, stage: number) {
+  const u = (rocks.material as THREE.ShaderMaterial).uniforms;
+  u.uTime.value = time; u.uStage.value = stage; u.uCamera.value.copy(camera.position); u.uKey.value.copy(key).normalize(); u.uFog.value.copy(fog);
+}
+
+// ─── solids ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A scorched landing terrace: a flat glossy 12-gon levelled at the high side of its footprint, on a dark rubble skirt. */
 function pad(solids: Solids, [x, z, R, birth]: readonly [number, number, number, number]) {
