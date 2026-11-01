@@ -35,13 +35,12 @@ class Dynamics {
 
 interface Move { title: string; label: string; body: string; meta: string }
 const MOVES: Move[] = [
-  { title: 'THE\nLOOP', label: 'the loop', body: 'MARS is one open-weights model sent on one mission: your workflow. The loop is short — observe, evaluate, refine, ascend — and it runs on hardware you own. Day 100 beats day 1.', meta: 'the model as it ships today · weights stay yours' },
-  { title: 'OBSERVE', label: 'observe', body: 'Every real run becomes a trace: input, tool calls, output, latency, cost. A drop-in SDK or a local proxy collects them where the work already happens — nothing leaves your machines.', meta: '2 000 traces · local proxy or SDK · nothing stored off-site' },
-  { title: 'EVALUATE', label: 'evaluate', body: 'Evals are code you write once and run on every output — right shape, matches the reference, inside the latency and cost budget. Deterministic checks, versioned next to the tasks. What passes collects; what fails falls away.', meta: 'pass 720 / 1 000 · evals as versioned code' },
-  { title: 'REFINE', label: 'refine', body: 'A low-rank adapter trains on what passed — on a GPU you own, inside a time and memory envelope you set. No data leaves; the weights grow where the passes landed.', meta: '04h 12m · 19.4 GB · one 24 GB GPU you own' },
-  { title: 'ASCEND', label: 'ascend', body: 'The candidate meets the incumbent on a held-out set it has never trained on. It ships only if it wins outright — otherwise it is discarded and the loop goes again. Rollback is one commit.', meta: 'candidate 77 % vs incumbent 58 % · held-out gate · rollback = one commit' },
+  { title: 'THE\nLOOP', label: 'the loop', body: 'MARS is an open model you run yourself, aimed at one job: your team\u2019s real workflow. It gets better at that job in a loop — watch, test, train, promote — that repeats forever.', meta: 'the model as it ships today · the weights are yours' },
+  { title: 'OBSERVE', label: 'observe', body: 'Every time your workflow runs, MARS writes down what happened: what went in, which tools it called, what came out, how long it took. One line of code or a local proxy collects it — nothing leaves your machines.', meta: '2 000 runs logged · one line of code · stays on your hardware' },
+  { title: 'EVALUATE', label: 'evaluate', body: 'You decide what \u201cgood\u201d means once, as small checks in code: the output has the right shape, matches your reference, stays under your time and cost limits. Runs that pass pile up; runs that fail are dropped.', meta: '720 of 1 000 runs pass · checks you write, run by us' },
+  { title: 'REFINE', label: 'refine', body: 'The passing runs are used to train a small add-on to the model — on a GPU you own, for however long you allow. Your data never goes anywhere; the model just gets better at your task.', meta: '04h 12m · 19.4 GB · one 24 GB GPU you own' },
+  { title: 'ASCEND', label: 'ascend', body: 'The newly trained model is tested against the current one on examples neither has seen. It becomes the default only if it clearly wins — otherwise it\u2019s thrown out and the loop starts again. Going back is one commit.', meta: 'new 77 % vs current 58 % · only promoted on a win' },
 ];;
-const HINTS = ['scroll to turn · hover the stone · click to open', 'scroll to turn · click to open', 'click to open', 'click to open', 'click to open'];
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const fine = matchMedia('(pointer: fine)').matches;
@@ -87,7 +86,8 @@ const pointer = { x: innerWidth / 2, y: innerHeight / 2, nx: 0, ny: 0, moved: fa
 /** Text for the current move; swaps with a short fade while open. */
 const describe = (i: number) => {
   const move = MOVES[i];
-  detailIndex.textContent = i === 0 ? 'iter 000' : `iter 00${i}`;
+
+const HINTS = ['scroll to turn · hover the stone · click to open', 'scroll to turn · click to open', 'click to open', 'click to open', 'click to open'];  detailIndex.textContent = i === 0 ? 'iter 000' : `iter 00${i}`;
   detailMove.textContent = move.label;
   detailBody.textContent = move.body;
   detailMeta.textContent = move.meta;
