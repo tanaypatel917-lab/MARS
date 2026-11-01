@@ -91,7 +91,7 @@ void main(){
  */
 export const colonyVertex = /* glsl */`
 attribute float aBirth;attribute float aT;attribute float aRise;attribute float aPhase;attribute float aSize;
-uniform float uSize;uniform float uStage;uniform float uTime;uniform float uPoint;
+uniform float uSize;uniform float uStage;uniform float uTime;uniform float uPoint;uniform vec2 uOffset;
 varying vec3 vWorld;varying float vFade;varying float vPhase;
 void main(){
  vec3 p=position;float life=0.;
@@ -100,7 +100,7 @@ void main(){
  float grow=clamp((uStage-aBirth+1.)*1.6-aT*.6,0.,1.);grow=grow*grow*(3.-2.*grow);
  vFade=grow*(aRise>0.?smoothstep(0.,.08,life)*(1.-smoothstep(.55,.95,life)):1.);
  vPhase=aPhase;
- gl_Position=projectionMatrix*viewMatrix*w;
+ gl_Position=projectionMatrix*viewMatrix*w;gl_Position.xy+=uOffset*gl_Position.w;
  gl_PointSize=uSize*(uPoint>.5?max(aSize,.001)*(aRise>0.?1.6:1.):1.);
 }
 `;

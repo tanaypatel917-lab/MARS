@@ -30,6 +30,8 @@ export class Landscape {
   private readonly disposables: { dispose(): void }[] = [];
   private readonly sky: THREE.ShaderMaterial; private readonly terrain: THREE.ShaderMaterial;
   private readonly staged: THREE.ShaderMaterial[] = [];
+  /** Hairline passes offset by whole device pixels, so the 1-px GL lines read as ~2-px strokes. */
+  private readonly offset: { m: THREE.ShaderMaterial; x: number; y: number }[] = [];
   private readonly ratio = Math.min(devicePixelRatio || 1, 2);
   private readonly camera = new THREE.Vector3(0, .6, 5.6);
   private readonly key = KEY.clone();
@@ -58,22 +60,22 @@ export class Landscape {
 
     // the colony, stage by stage (./landscapeColony): hairlines, warm window lights, cold navigation lights, hull/pad plates
     const colony = buildColony();
-    this.addStrokes(colony.lines, COLONY, .45);
-    this.addSparks(colony.lights, LIGHT, 16);
-    this.addSparks(colony.cold, COLD, 10);
+    this.addStrokes(colony.lines, COLONY, .55);
+    this.addSparks(colony.lights, LIGHT, 20);
+    this.addSparks(colony.cold, COLD, 12);
     this.addSolid(colony.solids);
 
     // the ground's detail (./landscapeGround): boulders, outcrops, landing pads, tyre tracks, survey stakes, beacons
     const ground = buildGround();
     this.addSolid(ground.solids);
-    this.addStrokes(ground.strokes, COLONY, .18);
-    this.addSparks(ground.lights, LIGHT, 9);
+    this.addStrokes(ground.strokes, COLONY, .22);
+    this.addSparks(ground.lights, LIGHT, 12);
 
     // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works
     const above = buildSky();
     this.addSolid(above.mesas);
     this.addSolid(above.moons);
-    this.addSparks(above.stars, COLONY, 3, .55);
+    this.addSparks(above.stars, COLONY, 4, .7);
     this.addSparks(above.traffic, COLD, 8);
     this.addStrokes(above.strokes, COLONY, .3);
   }
@@ -83,17 +85,22 @@ export class Landscape {
       uFogK: { value: FOG_K }, uFogH: { value: FOG_SCALE_HEIGHT }, uBase: { value: BASE }, uHorizon: { value: HORIZON } };
   }
 
-  /** Hairline strokes (a Strokes geometry) in the landscape's fog, drawing on with `stage`. */
+  /** Hairline strokes (a Strokes geometry) in the landscape's fog, drawing on with `stage`; drawn in device-pixel-offset passes so they read ~2 px wide. */
   addStrokes(geometry: THREE.BufferGeometry, color = COLONY, opacity = .45) {
-    const m = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: { ...this.shared(), uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uSize: { value: 1 }, uPoint: { value: 0 } }, transparent: true, depthWrite: false });
-    const mesh = new THREE.LineSegments(geometry, m); mesh.frustumCulled = false;
-    this.add(mesh); this.disposables.push(geometry, m); this.staged.push(m);
-    return mesh;
+    const passes = this.ratio >= 1.5 ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 0], [1, 0], [0, 1]];
+    const group = new THREE.Group();
+    passes.forEach(([x, y], i) => {
+      const m = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: { ...this.shared(), uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity * (i ? .7 : 1) }, uSize: { value: 1 }, uPoint: { value: 0 }, uOffset: { value: new THREE.Vector2() } }, transparent: true, depthWrite: false });
+      const mesh = new THREE.LineSegments(geometry, m); mesh.frustumCulled = false;
+      group.add(mesh); this.disposables.push(m); this.staged.push(m); this.offset.push({ m, x, y });
+    });
+    this.add(group); this.disposables.push(geometry);
+    return group;
   }
 
   /** Soft additive lights (a Sparks geometry); `size` is the base point size in CSS px. */
   addSparks(geometry: THREE.BufferGeometry, color = LIGHT, size = 16, opacity = 1) {
-    const m = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: { ...this.shared(), uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uSize: { value: size * this.ratio }, uPoint: { value: 1 } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const m = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: { ...this.shared(), uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uSize: { value: size * this.ratio }, uPoint: { value: 1 }, uOffset: { value: new THREE.Vector2() } }, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     const mesh = new THREE.Points(geometry, m); mesh.frustumCulled = false;
     this.add(mesh); this.disposables.push(geometry, m); this.staged.push(m);
     return mesh;
@@ -115,6 +122,8 @@ export class Landscape {
     this.sky.uniforms.uCamWorld.value.copy(camera.matrixWorld);
     this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
     for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
+    const px = 2 / (innerWidth * this.ratio), py = 2 / (innerHeight * this.ratio);
+    for (const o of this.offset) o.m.uniforms.uOffset.value.set(o.x * px, o.y * py);
   }
 
   dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); }
