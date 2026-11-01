@@ -4,6 +4,7 @@ import { EXTENT, BASE, POOL, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt } from '
 import { buildColony } from './landscapeColony';
 import { buildGround, updateRocks } from './landscapeGround';
 import { buildSky } from './landscapeSky';
+import { buildFlora } from './landscapeFlora';
 
 export { heightAt, POOL } from './landscapeTerrain';
 
@@ -31,6 +32,7 @@ export class Landscape {
   private readonly sky: THREE.ShaderMaterial; private readonly terrain: THREE.ShaderMaterial;
   private readonly staged: THREE.ShaderMaterial[] = [];
   private readonly rocks: THREE.Mesh;
+  private readonly flora: ReturnType<typeof buildFlora>;
   private readonly ratio = Math.min(devicePixelRatio || 1, 2);
   private readonly camera = new THREE.Vector3(0, .6, 5.6);
   private readonly key = KEY.clone();
@@ -78,6 +80,10 @@ export class Landscape {
     this.addSparks(above.stars, COLONY, 3, .55);
     this.addSparks(above.traffic, COLD, 8);
     this.addStrokes(above.strokes, COLONY, .3);
+
+    // life and weather (./landscapeFlora): bioluminescent flora growing with the stages, dust motes, dust devils, meteors, pool mist
+    this.flora = buildFlora();
+    this.add(...this.flora.objects);
   }
 
   private shared() {
@@ -118,9 +124,10 @@ export class Landscape {
     this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
     for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
     updateRocks(this.rocks, time, camera, this.key, this.fog, this.stage);
+    this.flora.update(time, camera, this.key, this.fog, this.stage);
   }
 
-  dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); }
+  dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); this.flora.dispose(); }
 }
 
 const hash = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };

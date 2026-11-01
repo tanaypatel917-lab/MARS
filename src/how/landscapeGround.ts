@@ -206,7 +206,7 @@ void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vNormal=normalize(
  */
 export const rockFragment = /* glsl */`
 precision highp float;
-uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uniform float uFogK;uniform float uHorizon;uniform float uFogH;uniform float uBase;
+uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uniform float uStage;uniform float uFogK;uniform float uHorizon;uniform float uFogH;uniform float uBase;
 varying vec3 vWorld;varying vec3 vNormal;varying vec3 vLocal;varying float vSeed;varying float vRelief;varying float vBorn;
 ${noise}
 ${skyChunk}
@@ -231,7 +231,7 @@ void main(){
  c+=uFog*pow(1.-max(0.,dot(n,eye)),4.)*.22;
  c=c/(1.+c*.25);
  float thin=exp(-max(0.,vWorld.y-uBase)/uFogH);float haze=1.-exp(-dist*dist*uFogK*thin);
- c=mix(c,sky(-eye,uFog,uHorizon,uTime,key),haze);
+ c=mix(c,sky(-eye,uFog,uHorizon,uTime,key,uStage),haze);
  float grain=(hash(vec3(gl_FragCoord.xy,floor(uTime*6.)))-.5)*.012;
  gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))+grain,1.);}
 `;
