@@ -107,21 +107,21 @@ const BOX_FACES = [[0, 1, 2, 3], [4, 7, 6, 5], [3, 2, 6, 7], [1, 0, 4, 5], [2, 1
 const WEDGE: Vec3[] = [[-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1], [-.3, 1, -1], [-.3, 1, 1]];
 const WEDGE_FACES = [[0, 1, 2, 3], [1, 0, 4], [3, 2, 5], [2, 1, 4, 5], [0, 3, 5, 4]];
 
-/** 15 … 25 strata outcrops on the crests: two or three tilted slabs and a wedge, dipping the same way, half buried. */
+/** ~16 strata outcrops on the crests: two or three tilted slabs and a wedge, dipping the same way, half buried. */
 function outcrops(solids: Solids, rand: () => number) {
   const placed: [number, number][] = [];
-  for (let tries = 0; tries < 6000 && placed.length < 22; tries++) {
+  for (let tries = 0; tries < 6000 && placed.length < 16; tries++) {
     const a = rand() * TAU, r = 30 + Math.sqrt(rand()) * 108, x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (heightAt(x, z).relief < 4.6 || nearPad(x, z, 8) || placed.some(p => Math.hypot(p[0] - x, p[1] - z) < 16)) continue;
     if (CRATERS.some(c => Math.hypot(c[0] - x, c[1] - z) < c[2] * 1.3)) continue;
     placed.push([x, z]);
-    const yaw = rand() * TAU, dip = .22 + rand() * .42, L = 3 + rand() * 5, relief = 1.3 + rand() * 1.4;
+    const yaw = rand() * TAU, dip = .22 + rand() * .42, L = 2 + rand() * 3, relief = 1.3 + rand() * 1.4;
     const base = new THREE.Quaternion().setFromUnitVectors(UP, groundNormal(x, z, 1.2)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, yaw));
     const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(base), along = new THREE.Vector3(1, 0, 0).applyQuaternion(base);
     const pieces = 2 + (rand() < .55 ? 1 : 0);
     let off = -(pieces - 1) * .5;
     for (let k = 0; k < pieces; k++, off += 1) {
-      const len = L * (k === 0 ? 1 : .55 + rand() * .35), T = .25 + len * .06 + rand() * .2, W = .7 + rand() * .9;
+      const len = L * (k === 0 ? 1 : .55 + rand() * .35), T = .2 + len * .06 + rand() * .15, W = .5 + rand() * .6;
       const shift = dir.clone().multiplyScalar(off * W * 2.2).addScaledVector(along, (rand() - .5) * len * .3);
       const px = x + shift.x, pz = z + shift.z;
       const q = base.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), dip + (rand() - .5) * .14));

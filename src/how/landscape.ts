@@ -3,6 +3,7 @@ import * as shader from './landscapeShaders';
 import { EXTENT, BASE, POOL, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt } from './landscapeTerrain';
 import { buildColony } from './landscapeColony';
 import { buildGround } from './landscapeGround';
+import { buildSky } from './landscapeSky';
 
 export { heightAt, POOL } from './landscapeTerrain';
 
@@ -67,6 +68,14 @@ export class Landscape {
     this.addSolid(ground.solids);
     this.addStrokes(ground.strokes, COLONY, .18);
     this.addSparks(ground.lights, LIGHT, 9);
+
+    // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works
+    const above = buildSky();
+    this.addSolid(above.mesas);
+    this.addSolid(above.moons);
+    this.addSparks(above.stars, COLONY, 3, .55);
+    this.addSparks(above.traffic, COLD, 8);
+    this.addStrokes(above.strokes, COLONY, .3);
   }
 
   private shared() {
