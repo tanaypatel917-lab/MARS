@@ -48,7 +48,7 @@ export class Landscape {
     this.add(sky); this.disposables.push(skyGeometry, this.sky);
 
     // terrain: a jittered grid built in world space (x, height, z)
-    const terrainGeometry = grid(mobile ? 110 : 180);
+    const terrainGeometry = grid(mobile ? 140 : 240);
     this.terrain = new THREE.ShaderMaterial({ vertexShader: shader.terrainVertex, fragmentShader: shader.terrainFragment, uniforms: {
       ...this.shared(), uPool: { value: POOL } } });
     const terrain = new THREE.Mesh(terrainGeometry, this.terrain);
@@ -125,18 +125,25 @@ export class Landscape {
 
 const hash = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
 
-/** Square grid over EXTENT, vertices jittered off the lattice (except on the plain) so the facets fall irregularly. */
+/**
+ * Square grid over EXTENT, vertices jittered off the lattice (except on the plain) so the silhouettes fall irregularly, denser
+ * toward the stele (the band the camera sees up close) and with analytic smooth normals from heightAt so the dunes shade as
+ * continuous regolith rather than facets; the shader adds the per-pixel detail.
+ */
 function grid(segments: number) {
-  const n = segments + 1, position = new Float32Array(n * n * 3), relief = new Float32Array(n * n), index: number[] = [];
-  const step = EXTENT / segments;
+  const n = segments + 1, position = new Float32Array(n * n * 3), normal = new Float32Array(n * n * 3), relief = new Float32Array(n * n), index: number[] = [];
+  const warp = (t: number) => { const u = t * 2 - 1; return (Math.sign(u) * (Math.abs(u) * .55 + u * u * .45) + 1) * .5; };
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const k = j * n + i;
     const edge = i === 0 || j === 0 || i === segments || j === segments ? 0 : 1;
-    let x = (i / segments - .5) * EXTENT, z = (j / segments - .5) * EXTENT;
+    let x = (warp(i / segments) - .5) * EXTENT, z = (warp(j / segments) - .5) * EXTENT;
+    const step = EXTENT / segments * (.55 + .9 * Math.hypot(x, z) / EXTENT);
     const jitter = .38 * step * edge * THREE.MathUtils.smoothstep(Math.hypot(x, z), 7, 14);
     x += (hash(i, j) - .5) * jitter; z += (hash(j + 7.3, i) - .5) * jitter;
-    const h = heightAt(x, z);
+    const h = heightAt(x, z), e = Math.max(.35, step * .5);
     position[k * 3] = x; position[k * 3 + 1] = h.y; position[k * 3 + 2] = z; relief[k] = h.relief;
+    const nx = heightAt(x - e, z).y - heightAt(x + e, z).y, nz = heightAt(x, z - e).y - heightAt(x, z + e).y, l = Math.hypot(nx, 2 * e, nz);
+    normal[k * 3] = nx / l; normal[k * 3 + 1] = 2 * e / l; normal[k * 3 + 2] = nz / l;
   }
   for (let j = 0; j < segments; j++) for (let i = 0; i < segments; i++) {
     const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
@@ -144,6 +151,7 @@ function grid(segments: number) {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
   g.setAttribute('aRelief', new THREE.BufferAttribute(relief, 1));
   g.setIndex(index);
   return g;
