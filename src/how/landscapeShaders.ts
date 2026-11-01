@@ -48,7 +48,7 @@ void main(){vec3 d=normalize(vRay);vec3 c=sky(d,uFog,uHorizon,uTime,uKey,uStage)
  */
 export const terrainVertex = /* glsl */`
 attribute float aRelief;attribute float aBirth;uniform float uStage;varying vec3 vWorld;varying float vRelief;varying float vBorn;
-void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vRelief=aRelief;vBorn=step(aBirth-.01,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
+void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vRelief=aRelief;vBorn=step(aBirth-.4,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
 `;
 export const terrainFragment = /* glsl */`
 precision highp float;
@@ -71,7 +71,7 @@ void main(){
  /* pools: flat, mirroring the sky with a Fresnel weight, a hard key glint */
  vec3 up=vec3(0.,1.,0.);float cosE=max(0.,eye.y);float f=.04+.96*pow(1.-cosE,5.);
  vec3 mirrored=sky(reflect(-eye,up),uFog,uHorizon,uTime,key,uStage);
- vec3 h=normalize(key+eye);float spec=pow(max(0.,dot(up,h)),420.)*1.2+pow(max(0.,dot(up,h)),14.)*.03;
+ vec3 h=normalize(key+eye);float spec=pow(max(0.,dot(up,h)),420.)*1.2+pow(max(0.,dot(up,h)),14.)*.012;
  vec3 pc=vec3(.0025,.002,.0035)+mix(mirrored,uFog*.55,.4)*f*1.1+spec*vec3(1.,.93,.84)*(.2+.8*f);
  float pool=1.-smoothstep(uPool+.005,uPool+.05,vRelief);
  c=mix(c,pc,pool);
@@ -97,7 +97,7 @@ void main(){
  vec3 p=position;float life=0.;
  if(aRise>0.){life=fract(uTime*.03*aRise+aPhase);float s=life*life;p.y+=s*90.;p.x+=s*10.*sin(aPhase*6.2832);p.z+=s*10.*cos(aPhase*6.2832);}
  vec4 w=modelMatrix*vec4(p,1.);vWorld=w.xyz;
- float grow=clamp((uStage-aBirth)*2.4-aT*1.2,0.,1.);grow=grow*grow*(3.-2.*grow);
+ float grow=clamp((uStage-aBirth+1.)*1.6-aT*.6,0.,1.);grow=grow*grow*(3.-2.*grow);
  vFade=grow*(aRise>0.?smoothstep(0.,.08,life)*(1.-smoothstep(.55,.95,life)):1.);
  vPhase=aPhase;
  gl_Position=projectionMatrix*viewMatrix*w;
