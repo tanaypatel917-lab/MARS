@@ -71,6 +71,8 @@ export class Landscape {
     this.addSolid(ground.solids);
     this.addStrokes(ground.strokes, COLONY, .18);
     this.addSparks(ground.lights, LIGHT, 9);
+    this.addSparks(ground.cold, COLD, 10);
+    this.addSparks(ground.dust, COLONY, 5, .35);
     this.rocks = ground.rocks; this.add(this.rocks); this.disposables.push(this.rocks.geometry, this.rocks.material as THREE.Material);
 
     // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works

@@ -23,9 +23,10 @@ import { CRATERS } from './landscapeGroundRelief';
  *
  * Everything sits on `ground()` = heightAt + groundRelief, so it stays seated once the terrain gets the relief too.
  */
-export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; rocks: THREE.Mesh } {
-  const solids = new Solids(), strokes = new Strokes(), lights = new Sparks(), rocks = new Rocks();
+export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; cold: THREE.BufferGeometry; dust: THREE.BufferGeometry; rocks: THREE.Mesh } {
+  const solids = new Solids(), strokes = new Strokes(), lights = new Sparks(), cold = new Sparks(), dust = new Sparks(), rocks = new Rocks();
   const rand = seeded(2026);
+  TRACKS.length = 0;
   const fields = boulders(rocks, rand);
   outcrops(rocks, rand);
   for (const p of PADS) pad(solids, p);
@@ -34,9 +35,17 @@ export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.Bu
   stakes(strokes, rand);
   beacons(strokes, lights, rand);
   runways(strokes, lights, rand);
+  rovers(strokes, solids, cold, rand);
+  containers(strokes, solids, lights, rand);
+  debris(strokes, solids, rand);
+  antennaFarms(strokes, cold, rand);
+  dustDevils(dust, rand);
   const mesh = new THREE.Mesh(rocks.geometry(), rockMaterial()); mesh.frustumCulled = false;
-  return { solids: solids.geometry(), strokes: strokes.geometry(), lights: lights.geometry(), rocks: mesh };
+  return { solids: solids.geometry(), strokes: strokes.geometry(), lights: lights.geometry(), cold: cold.geometry(), dust: dust.geometry(), rocks: mesh };
 }
+
+/** Centre-lines of every tyre track laid this build, so rovers and container yards can sit on the roads. */
+const TRACKS: { pts: [number, number][]; birth: number }[] = [];
 
 /** Ground height with the fine relief. NOTE for wiring: once `heightAt` adds groundRelief itself, drop the second term. */
 const ground = (x: number, z: number) => heightAt(x, z).y;
@@ -124,7 +133,7 @@ class Rocks {
 }
 
 /** Tessellation by size (three 0.180 icosahedron detail is linear: 20·(d+1)² tris): small rubble 80 tris, big rocks and outcrops 320. */
-const detailFor = (size: number) => size < 1.3 ? 1 : size < 2.4 ? 2 : 3;
+const detailFor = (size: number) => size < 2.4 ? 1 : size < 4.5 ? 2 : 3;
 
 /** A boulder, half buried, seated on the ground and tilted with it; the long axis turned at random. */
 function boulder(rocks: Rocks, x: number, z: number, size: number, relief: number, birth: number, rand: () => number) {
@@ -134,13 +143,22 @@ function boulder(rocks: Rocks, x: number, z: number, size: number, relief: numbe
   rocks.add(detailFor(size), new THREE.Vector3(x, ground(x, z) - .2 + scale.y * .6, z), q, scale, relief, birth, rand);
 }
 
-/** ~250 boulders banked on the crater rims and aprons, and strewn at the dune feet near the pool shores. */
+/**
+ * ~600 boulders: a dozen foreground masses (4 … 7 u) at 24 … 36 u, banks on the crater rims and aprons, fields at the dune feet,
+ * scree of 2 … 3 u rocks along the pool shores, and a fill weighted into the 22 … 50 u band the camera sees large.
+ */
 function boulders(rocks: Rocks, rand: () => number): Site[] {
   let n = 0;
   const place = (x: number, z: number, size: number, birth: number, margin: number) => {
-    if (Math.hypot(x, z) < 24 || !isLand(x, z, margin) || nearPad(x, z, 1)) return;
-    boulder(rocks, x, z, size, 2 + rand() * 3, birth, rand); n++;
+    if (Math.hypot(x, z) < 22 || !isLand(x, z, margin) || nearPad(x, z, 1)) return false;
+    boulder(rocks, x, z, size, 2 + rand() * 3, birth, rand); n++; return true;
   };
+  const masses: [number, number][] = [];
+  for (let tries = 0; tries < 3000 && masses.length < 12; tries++) {
+    const a = rand() * TAU, r = 24 + rand() * 12, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (masses.some(m => Math.hypot(m[0] - x, m[1] - z) < 9) || HABITATS.some(h => Math.hypot(h[0] - x, h[1] - z) < h[2] + 5)) continue;
+    if (place(x, z, 4 + rand() * 3, 0, .6)) masses.push([x, z]);
+  }
   for (const c of CRATERS) {
     const count = Math.round(7 + c[2] * .75);
     for (let k = 0; k < count; k++) {
@@ -161,8 +179,13 @@ function boulders(rocks: Rocks, rand: () => number): Site[] {
       place(x + Math.cos(b) * d, z + Math.sin(b) * d, .4 + 2.2 * Math.pow(rand(), 2.6), 0, .22);
     }
   }
-  while (n < 250) {
-    const a = rand() * TAU, r = 26 + Math.sqrt(rand()) * 110;
+  for (let tries = 0, scree = 0; tries < 6000 && scree < 70; tries++) {
+    const a = rand() * TAU, r = 24 + Math.sqrt(rand()) * 50, x = Math.cos(a) * r, z = Math.sin(a) * r, h = heightAt(x, z);
+    if (h.relief < POOL + .3 || h.relief > POOL + .95) continue;
+    if (place(x, z, 2 + rand(), 0, .22)) scree++;
+  }
+  while (n < 600) {
+    const a = rand() * TAU, r = 22 + Math.pow(rand(), 1.5) * 112;
     place(Math.cos(a) * r, Math.sin(a) * r, .4 + 1.6 * Math.pow(rand(), 2.2), 0, .4);
   }
   return fields;
@@ -314,6 +337,7 @@ function tyreTracks(strokes: Strokes, centre: [number, number][], birth: number)
     left.push([lx, ground(lx, lz) + .08, lz]); right.push([rx, ground(rx, rz) + .08, rz]);
   }
   strokes.poly(left, birth); strokes.poly(right, birth + .04);
+  TRACKS.push({ pts: centre, birth });
 }
 
 /** Rover track network: the survey loop at 0, the inner crater fields at 1, pads, far fields and dune-foot fields at 2. */
@@ -350,6 +374,14 @@ function tracks(strokes: Strokes, fields: Site[], rand: () => number) {
     }
     if (linked) nodes.push(s);
   }
+  // the near band gets a denser web: inner nodes also link to their close neighbours
+  const inner = nodes.filter(n => Math.hypot(n.x, n.z) < 62);
+  let extra = 0;
+  for (let i = 0; i < inner.length && extra < 14; i++) for (let j = i + 1; j < inner.length && extra < 14; j++) {
+    const a = inner[i], b = inner[j], d = Math.hypot(a.x - b.x, a.z - b.z);
+    if (d < 10 || d > 32 || rand() < .3) continue;
+    if (connect(a, b, Math.min(2, Math.max(a.birth, b.birth) + .3 + rand() * .5), .35)) extra++;
+  }
 }
 
 /** A dotted hairline along a polyline (dash .45 u, gap .55 u) hugging the ground. */
@@ -375,12 +407,15 @@ function footpaths(strokes: Strokes, rand: () => number) {
     for (let k = 0; k <= n; k++) { const a = k / n * TAU; loop.push([s.x + Math.cos(a) * R * (1 + Math.sin(k * 1.7) * .05), s.z + Math.sin(a) * R * (1 + Math.cos(k * 2.3) * .05)]); }
     dotted(strokes, loop.filter(p => isLand(p[0], p[1], .15)), 2 + rand() * .9);
   }
-  for (let i = 0; i < sites.length; i++) for (let j = i + 1; j < sites.length; j++) {
-    const a = sites[i], b = sites[j], d = Math.hypot(a.x - b.x, a.z - b.z);
-    if (d > 17) continue;
-    const ux = (b.x - a.x) / d, uz = (b.z - a.z) / d;
-    const r = route(a.x + ux * (a.r + 1.6), a.z + uz * (a.r + 1.6), b.x - ux * (b.r + 1.6), b.z - uz * (b.r + 1.6), .2);
-    if (r) dotted(strokes, relax(r, .2, rand() * 6), 2.2 + rand() * .8);
+  const linked = new Set<string>();
+  for (let i = 0; i < sites.length; i++) {
+    const near = sites.map((b, j) => ({ j, d: Math.hypot(sites[i].x - b.x, sites[i].z - b.z) })).filter(o => o.j !== i && o.d < 34).sort((a, b) => a.d - b.d).slice(0, 2);
+    for (const { j, d } of near) {
+      const key = i < j ? `${i}-${j}` : `${j}-${i}`; if (linked.has(key)) continue; linked.add(key);
+      const a = sites[i], b = sites[j], ux = (b.x - a.x) / d, uz = (b.z - a.z) / d;
+      const r = route(a.x + ux * (a.r + 1.6), a.z + uz * (a.r + 1.6), b.x - ux * (b.r + 1.6), b.z - uz * (b.r + 1.6), .2);
+      if (r) dotted(strokes, relax(r, .2, rand() * 6), Math.max(2, a.birth, b.birth) + .2 + rand() * .7);
+    }
   }
 }
 
@@ -405,6 +440,14 @@ function stakes(strokes: Strokes, rand: () => number) {
     const cx = c[0] + Math.cos(a) * d, cz = c[1] + Math.sin(a) * d, tx = -Math.sin(a), tz = Math.cos(a);
     row(cx - tx * L, cz - tz * L, cx + tx * L, cz + tz * L, .6 + rand() * .4);
   });
+  // survey grids at the mining district: 5 × 5 tick lattices on the shore flats where the ice is worked
+  for (let tries = 0, grids = 0; tries < 3000 && grids < 2; tries++) {
+    const a = rand() * TAU, r = 28 + rand() * 32, x = Math.cos(a) * r, z = Math.sin(a) * r, h = heightAt(x, z);
+    if (h.relief < POOL + .5 || h.relief > POOL + 1.4 || nearPad(x, z, 5)) continue;
+    const yaw = rand() * TAU, tx = Math.cos(yaw), tz = Math.sin(yaw);
+    for (let k = -2; k <= 2; k++) row(x - tx * 7.5 - tz * k * 3, z - tz * 7.5 + tx * k * 3, x + tx * 7.5 - tz * k * 3, z + tz * 7.5 + tx * k * 3, 1.85 + (k + 2) * .03);
+    grids++;
+  }
 }
 
 /** Beacon stakes at the crater fields: a 3 … 4.5 u mast on the rim facing the stele, a warm light on top; big craters get two. */
@@ -456,7 +499,174 @@ function runways(strokes: Strokes, lights: Sparks, rand: () => number) {
       }
     }
     strokes.poly(edges[0], lb + .2); strokes.poly(edges[1], lb + .24);
+    for (let d = R * 1.45; d < best.len - 3; d += 4.5) {
+      const ax = x + c * d, az = z + s * d, ay = ground(ax, az) + .07;
+      for (const side of [-1, 1]) { const px = ax + c * 1.7 - s * 1.5 * side, pz = az + s * 1.7 + c * 1.5 * side; strokes.seg([ax, ay, az], [px, ground(px, pz) + .07, pz], lb + .35 + (1 - d / best.len) * .3); }
+    }
     const ex = x + c * best.len, ez = z + s * best.len;
     strokes.seg([ex - s * 2.2, ground(ex - s * 2.2, ez + c * 2.2) + .07, ez + c * 2.2], [ex + s * 2.2, ground(ex + s * 2.2, ez - c * 2.2) + .07, ez - c * 2.2], lb + .6);
+  }
+}
+
+// ─── equipment and debris ─────────────────────────────────────────────────────────────────────────────────────────────
+
+const v3 = (p: THREE.Vector3): Vec3 => [p.x, p.y, p.z];
+const BOX_EDGES = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+function boxEdges(strokes: Strokes, corners: THREE.Vector3[], birth: number) { for (const [a, b] of BOX_EDGES) strokes.seg(v3(corners[a]), v3(corners[b]), birth); }
+/** A hairline circle in the plane spanned by u, v. */
+function ring(strokes: Strokes, c: THREE.Vector3, r: number, u: THREE.Vector3, v: THREE.Vector3, birth: number, n = 14) {
+  const pts: Vec3[] = [];
+  for (let i = 0; i <= n; i++) { const a = i / n * TAU, cu = Math.cos(a) * r, sv = Math.sin(a) * r; pts.push([c.x + u.x * cu + v.x * sv, c.y + u.y * cu + v.y * sv, c.z + u.z * cu + v.z * sv]); }
+  strokes.poly(pts, birth);
+}
+/** Box corners (bottom 4 then top 4) of an oriented box around `centre` with half-extents along f (forward), s (side), up. */
+function corners(centre: THREE.Vector3, f: THREE.Vector3, s: THREE.Vector3, up: THREE.Vector3, hf: number, hs: number, hu: number) {
+  const out: THREE.Vector3[] = [];
+  for (const du of [-hu, hu]) for (const [df, ds] of [[-hf, -hs], [hf, -hs], [hf, hs], [-hf, hs]]) out.push(centre.clone().addScaledVector(f, df).addScaledVector(s, ds).addScaledVector(up, du));
+  return out;
+}
+/** Ground frame at (x, z) facing `yaw`: forward along the slope, side, up = ground normal. */
+function frame(x: number, z: number, yaw: number) {
+  const up = groundNormal(x, z), f = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+  f.addScaledVector(up, -f.dot(up)).normalize();
+  return { up, f, s: new THREE.Vector3().crossVectors(up, f).normalize() };
+}
+
+/** A rover: 2.5 u box body on six wheels, a mast with a crossbar, one cold headlight; the deck is a solid plate so it has mass. */
+function rover(strokes: Strokes, solids: Solids, cold: Sparks, x: number, z: number, yaw: number, birth: number) {
+  const { up, f, s } = frame(x, z, yaw), base = new THREE.Vector3(x, ground(x, z), z);
+  const at = (df: number, ds: number, du: number) => base.clone().addScaledVector(f, df).addScaledVector(s, ds).addScaledVector(up, du);
+  const c = corners(at(0, 0, .85), f, s, up, 1.25, .7, .35);
+  boxEdges(strokes, c, birth);
+  solids.tri(v3(c[4]), v3(c[5]), v3(c[6]), 6, birth); solids.tri(v3(c[4]), v3(c[6]), v3(c[7]), 6, birth);
+  for (const df of [-.95, 0, .95]) for (const ds of [-.88, .88]) ring(strokes, at(df, ds, .34), .34, f, up, birth + .05, 12);
+  strokes.seg(v3(at(-.9, .3, 1.2)), v3(at(-.9, .3, 2.7)), birth + .1);
+  strokes.seg(v3(at(-.9, .05, 2.5)), v3(at(-.9, .55, 2.5)), birth + .1);
+  cold.add(v3(at(1.3, 0, 1)), birth + .15, .6);
+}
+
+/** Six rovers parked on the tyre tracks (two per stage 0 … 2), nosed along the road. */
+function rovers(strokes: Strokes, solids: Solids, cold: Sparks, rand: () => number) {
+  const usable = TRACKS.filter(t => t.pts.length > 12).sort((a, b) => a.birth - b.birth);
+  if (!usable.length) return;
+  const taken: [number, number][] = [];
+  [0, .15, 1, 1.3, 2, 2.3].forEach((birth, i) => {
+    const cands = usable.filter(t => t.birth <= birth + .3);
+    if (!cands.length) return;
+    for (let tries = 0; tries < 20; tries++) {
+      const t = cands[(i * 5 + 2 + tries) % cands.length], k = Math.floor(t.pts.length * (.25 + rand() * .5));
+      const [x, z] = t.pts[k], [bx, bz] = t.pts[Math.min(t.pts.length - 1, k + 2)];
+      if (Math.hypot(x, z) < 22 || Math.hypot(x, z) > 75 || taken.some(p => Math.hypot(p[0] - x, p[1] - z) < 12)) continue;
+      taken.push([x, z]);
+      rover(strokes, solids, cold, x, z, Math.atan2(bx - x, bz - z), Math.max(birth, t.birth) + .2);
+      break;
+    }
+  });
+}
+
+/** Cargo yards: stacks of 2 … 5 containers (1.5 × 1.5 × 3 u) by the later pads and along the roads, a warm work light on top. */
+function containers(strokes: Strokes, solids: Solids, lights: Sparks, rand: () => number) {
+  const box = new THREE.BoxGeometry(3, 1.5, 1.5);
+  const sites: Site[] = [];
+  for (const [px, pz, R, pb] of PADS.slice(1)) for (let t = 0; t < 40; t++) {
+    const a = rand() * TAU, d = R * 1.6 + 2 + rand() * 4, x = px + Math.cos(a) * d, z = pz + Math.sin(a) * d;
+    if (isLand(x, z, .5) && Math.hypot(x, z) > 22) { sites.push({ x, z, birth: Math.max(1, Math.min(3, pb)) }); break; }
+  }
+  const roads = TRACKS.filter(t => t.pts.length > 10 && t.birth <= 2.5);
+  for (let i = 0; i < 6 && roads.length; i++) {
+    const t = roads[(i * 3 + 1) % roads.length], k = Math.floor(t.pts.length * (.3 + rand() * .4)), [x0, z0] = t.pts[k], [x1, z1] = t.pts[k + 1];
+    const l = Math.hypot(x1 - x0, z1 - z0) || 1, x = x0 - (z1 - z0) / l * 3, z = z0 + (x1 - x0) / l * 3;
+    if (isLand(x, z, .4) && Math.hypot(x, z) > 22 && !sites.some(s => Math.hypot(s.x - x, s.z - z) < 10)) sites.push({ x, z, birth: Math.min(3, Math.max(1, Math.ceil(t.birth)) + (rand() < .5 ? 1 : 0)) });
+  }
+  for (const site of sites) {
+    const n = 2 + Math.floor(rand() * 4), { up, f, s } = frame(site.x, site.z, rand() * TAU), base = new THREE.Vector3(site.x, ground(site.x, site.z) - .1, site.z);
+    const q0 = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(s, up, f));
+    const slots: [number, number][] = n === 2 ? [[0, -.8], [0, .8]] : [[0, -1.6], [0, 0], [0, 1.6], [1, -.8], [1, .8]];
+    let top = base.y;
+    for (let k = 0; k < n; k++) {
+      const [lvl, off] = slots[k], birth = site.birth - .3 + k * .07;
+      const p = base.clone().addScaledVector(f, off).addScaledVector(s, lvl ? (rand() - .5) * .3 : 0).addScaledVector(up, .75 + lvl * 1.5);
+      const q = q0.clone().multiply(new THREE.Quaternion().setFromAxisAngle(UP, (rand() - .5) * .1));
+      solids.mesh(box, new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), 6, birth);
+      const bf = new THREE.Vector3(0, 0, 1).applyQuaternion(q), bs = new THREE.Vector3(1, 0, 0).applyQuaternion(q), bu = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+      boxEdges(strokes, corners(p, bf, bs, bu, .75, 1.5, .75), birth);
+      top = Math.max(top, p.y + .75);
+    }
+    lights.add([site.x, top + .4, site.z], site.birth, .7);
+  }
+}
+
+/** A retired lander hull: a tilted truncated cone (two hairline rings, struts, a solid skirt and cap), three legs splayed to the ground. */
+function hull(strokes: Strokes, solids: Solids, x: number, z: number, tilt: number, rand: () => number) {
+  if (!isLand(x, z, .3)) return;
+  const ta = rand() * TAU, q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(Math.cos(ta), 0, Math.sin(ta)), tilt);
+  const base = new THREE.Vector3(x, ground(x, z) - .4, z), axis = UP.clone().applyQuaternion(q), u = new THREE.Vector3(1, 0, 0).applyQuaternion(q), v = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+  const top = base.clone().addScaledVector(axis, 2.8), lo: Vec3[] = [], hi: Vec3[] = [], n = 14;
+  for (let i = 0; i <= n; i++) {
+    const a = i / n * TAU, cu = Math.cos(a), sv = Math.sin(a);
+    lo.push([base.x + (u.x * cu + v.x * sv) * 1.6, base.y + (u.y * cu + v.y * sv) * 1.6, base.z + (u.z * cu + v.z * sv) * 1.6]);
+    hi.push([top.x + (u.x * cu + v.x * sv) * .95, top.y + (u.y * cu + v.y * sv) * .95, top.z + (u.z * cu + v.z * sv) * .95]);
+  }
+  strokes.poly(lo, 1); strokes.poly(hi, 1.05);
+  for (let i = 0; i < n; i += 3) strokes.seg(lo[i], hi[i], 1.08);
+  for (let i = 0; i < n; i++) { solids.tri(lo[i], lo[i + 1], hi[i + 1], 5.5, 1); solids.tri(lo[i], hi[i + 1], hi[i], 5.5, 1); solids.tri(hi[i], hi[i + 1], v3(top), 5, 1); }
+  for (let k = 0; k < 3; k++) {
+    const a = k / 3 * TAU + .4, px = x + (u.x * Math.cos(a) + v.x * Math.sin(a)) * 2.7, pz = z + (u.z * Math.cos(a) + v.z * Math.sin(a)) * 2.7;
+    strokes.seg(lo[Math.round(a / TAU * n) % n], [px, ground(px, pz), pz], 1.1);
+  }
+}
+
+/** The debris field: three crashed/retired hulls and a scatter of tilted panels, birth 1. */
+function debris(strokes: Strokes, solids: Solids, rand: () => number) {
+  let site: [number, number] | null = null;
+  for (let t = 0; t < 600 && !site; t++) {
+    const a = rand() * TAU, r = 34 + rand() * 24, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (isLand(x, z, .9) && !nearPad(x, z, 6) && HABITATS.every(h => Math.hypot(h[0] - x, h[1] - z) > 12) && CRATERS.every(c => Math.hypot(c[0] - x, c[1] - z) > c[2] * 1.6)) site = [x, z];
+  }
+  if (!site) return;
+  for (const [dx, dz, tilt] of [[0, 0, .35], [6.5, 3, .55], [-5, 5.5, .25]]) hull(strokes, solids, site[0] + dx, site[1] + dz, tilt, rand);
+  const plate = new THREE.PlaneGeometry(1, 1.6);
+  for (let k = 0; k < 26; k++) {
+    const a = rand() * TAU, d = Math.pow(rand(), .6) * 9, x = site[0] + Math.cos(a) * d, z = site[1] + Math.sin(a) * d;
+    if (!isLand(x, z, .2)) continue;
+    const q = new THREE.Quaternion().setFromUnitVectors(UP, groundNormal(x, z)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, rand() * TAU))
+      .multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + (rand() - .5) * .9, 0, (rand() - .5) * .6)));
+    const p = new THREE.Vector3(x, ground(x, z) + .25, z), birth = 1 + rand() * .15;
+    solids.mesh(plate, new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1)), 6, birth);
+    if (k % 3 === 0) {
+      const c = [[-.5, -.8], [.5, -.8], [.5, .8], [-.5, .8]].map(([ex, ey]) => new THREE.Vector3(ex, ey, 0).applyQuaternion(q).add(p));
+      for (let i = 0; i < 4; i++) strokes.seg(v3(c[i]), v3(c[(i + 1) % 4]), birth);
+    }
+  }
+}
+
+/** Antenna farms: three rows of 8 … 12 thin 3-u masts with tiny cold lights and a ground hairline along the row, birth 2. */
+function antennaFarms(strokes: Strokes, cold: Sparks, rand: () => number) {
+  const sites: [number, number][] = [];
+  for (let t = 0; t < 4000 && sites.length < 3; t++) {
+    const a = rand() * TAU, r = 32 + rand() * 40, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (!isLand(x, z, 1) || nearPad(x, z, 6) || sites.some(s => Math.hypot(s[0] - x, s[1] - z) < 40) || HABITATS.some(h => Math.hypot(h[0] - x, h[1] - z) < 9)) continue;
+    const yaw = rand() * TAU, n = 8 + Math.floor(rand() * 5), tx = Math.cos(yaw), tz = Math.sin(yaw), pts: Vec3[] = [];
+    for (let k = 0; k < n; k++) { const px = x + tx * (k - n / 2) * 2.2, pz = z + tz * (k - n / 2) * 2.2; if (!isLand(px, pz, .3)) break; pts.push([px, ground(px, pz), pz]); }
+    if (pts.length < n) continue;
+    sites.push([x, z]);
+    pts.forEach(([px, py, pz], k) => {
+      const b = 1.7 + k / n * .3;
+      strokes.seg([px, py, pz], [px, py + 3, pz], b);
+      strokes.seg([px - tz * .3, py + 2.6, pz + tx * .3], [px + tz * .3, py + 2.6, pz - tx * .3], b + .02);
+      cold.add([px, py + 3.05, pz], b + .05, .4);
+    });
+    strokes.poly(pts.map(([px, py, pz]) => [px, py + .05, pz] as Vec3), 2);
+  }
+}
+
+/** Four dust devils: columns of faint rising sparks (the kit's aRise loop) wandering the plains, phases spread, birth 0. */
+function dustDevils(dust: Sparks, rand: () => number) {
+  for (let t = 0, placed = 0; t < 2000 && placed < 4; t++) {
+    const a = placed * TAU / 4 + rand() * 1.2, r = 40 + rand() * 40, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (!isLand(x, z, .6)) continue;
+    const rise = .2 + rand() * .15;
+    for (let k = 0; k < 80; k++) { const b = rand() * TAU, d = Math.sqrt(rand()) * 1.3, px = x + Math.cos(b) * d, pz = z + Math.sin(b) * d; dust.add([px, ground(px, pz) + rand() * .8, pz], 0, .3, rise, rand()); }
+    placed++;
   }
 }
