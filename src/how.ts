@@ -35,12 +35,12 @@ class Dynamics {
 
 interface Move { title: string; label: string; body: string; meta: string }
 const MOVES: Move[] = [
-  { title: 'THE\nLOOP', label: 'the loop', body: 'One open-weights model, pointed at the tasks your team already runs. Four moves — observe, evaluate, refine, ascend — repeated until day 100 beats day 1.', meta: 'inside the stone: the model as it ships today' },
-  { title: 'OBSERVE', label: 'observe', body: 'Every run of your workflow becomes a trace: the input, the tool calls, the output, the latency. Collected where the work already happens, kept on your machines.', meta: '2 000 traces · a drop-in SDK or a local proxy' },
-  { title: 'EVALUATE', label: 'evaluate', body: 'Evals are code you write once and run on every output: right shape, matches the reference, within budget. What passes collects; what fails falls away.', meta: 'pass 0 720 / 1 000 · deterministic checks' },
-  { title: 'REFINE', label: 'refine', body: 'A low-rank adapter is trained on what passed — on hardware you own, inside a time and memory envelope you set. The weights grow where the passes landed.', meta: '04h 12m · 19.4 GB · one 24 GB GPU' },
-  { title: 'ASCEND', label: 'ascend', body: 'The candidate meets the incumbent on a held-out set. It ships only if it wins; otherwise it is discarded and the loop goes again. Rollback is one commit.', meta: 'candidate 77 % vs incumbent 58 % · shipped' },
-];
+  { title: 'THE\nLOOP', label: 'the loop', body: 'MARS is one open-weights model sent on one mission: your workflow. The loop is short — observe, evaluate, refine, ascend — and it runs on hardware you own. Day 100 beats day 1.', meta: 'the model as it ships today · weights stay yours' },
+  { title: 'OBSERVE', label: 'observe', body: 'Every real run becomes a trace: input, tool calls, output, latency, cost. A drop-in SDK or a local proxy collects them where the work already happens — nothing leaves your machines.', meta: '2 000 traces · local proxy or SDK · nothing stored off-site' },
+  { title: 'EVALUATE', label: 'evaluate', body: 'Evals are code you write once and run on every output — right shape, matches the reference, inside the latency and cost budget. Deterministic checks, versioned next to the tasks. What passes collects; what fails falls away.', meta: 'pass 720 / 1 000 · evals as versioned code' },
+  { title: 'REFINE', label: 'refine', body: 'A low-rank adapter trains on what passed — on a GPU you own, inside a time and memory envelope you set. No data leaves; the weights grow where the passes landed.', meta: '04h 12m · 19.4 GB · one 24 GB GPU you own' },
+  { title: 'ASCEND', label: 'ascend', body: 'The candidate meets the incumbent on a held-out set it has never trained on. It ships only if it wins outright — otherwise it is discarded and the loop goes again. Rollback is one commit.', meta: 'candidate 77 % vs incumbent 58 % · held-out gate · rollback = one commit' },
+];;
 const HINTS = ['scroll to turn · hover the stone · click to open', 'scroll to turn · click to open', 'click to open', 'click to open', 'click to open'];
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
