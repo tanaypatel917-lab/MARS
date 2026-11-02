@@ -5,6 +5,7 @@ import { noise } from '../shaders';
 import { heightAt, isLand, seeded, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON } from './landscapeTerrain';
 import { Strokes, Sparks, Solids, type Vec3 } from './landscapeKit';
 import { skyChunk } from './landscapeShaders';
+import { FOG } from './landscape';
 import { CRATERS } from './landscapeGroundRelief';
 
 /**
@@ -260,7 +261,7 @@ void main(){
 
 function rockMaterial() {
   return new THREE.ShaderMaterial({ vertexShader: rockVertex, fragmentShader: rockFragment, uniforms: {
-    uKey: { value: new THREE.Vector3(-.62, .5, .6).normalize() }, uCamera: { value: new THREE.Vector3(0, .6, 5.6) }, uFog: { value: new THREE.Color('#3a3220') },
+    uKey: { value: new THREE.Vector3(-.62, .5, .6).normalize() }, uCamera: { value: new THREE.Vector3(0, .6, 5.6) }, uFog: { value: new THREE.Color(FOG[0]) },
     uTime: { value: 0 }, uStage: { value: 0 }, uFogK: { value: FOG_K }, uFogH: { value: FOG_SCALE_HEIGHT }, uBase: { value: BASE }, uHorizon: { value: HORIZON } } });
 }
 

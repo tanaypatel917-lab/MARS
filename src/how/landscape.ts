@@ -4,6 +4,7 @@ import { EXTENT, BASE, POOL, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt } from '
 import { buildColony } from './landscapeColony';
 import { buildGround, updateRocks } from './landscapeGround';
 import { buildSky } from './landscapeSky';
+import { buildFlora } from './landscapeFlora';
 
 export { heightAt, POOL } from './landscapeTerrain';
 
@@ -30,8 +31,9 @@ export class Landscape {
   private readonly disposables: { dispose(): void }[] = [];
   private readonly sky: THREE.ShaderMaterial; private readonly terrain: THREE.ShaderMaterial;
   private readonly staged: THREE.ShaderMaterial[] = [];
-  /** Hairline passes offset by whole device pixels, so the 1-px GL lines read as ~2-px strokes. */
   private readonly rocks: THREE.Mesh;
+  private readonly flora: ReturnType<typeof buildFlora>;
+  /** Hairline passes offset by whole device pixels, so the 1-px GL lines read as ~2-px strokes. */
   private readonly offset: { m: THREE.ShaderMaterial; x: number; y: number }[] = [];
   private readonly ratio = Math.min(devicePixelRatio || 1, 2);
   private readonly camera = new THREE.Vector3(0, .6, 5.6);
@@ -50,7 +52,7 @@ export class Landscape {
     this.add(sky); this.disposables.push(skyGeometry, this.sky);
 
     // terrain: a jittered grid built in world space (x, height, z)
-    const terrainGeometry = grid(mobile ? 110 : 180);
+    const terrainGeometry = grid(mobile ? 140 : 240);
     this.terrain = new THREE.ShaderMaterial({ vertexShader: shader.terrainVertex, fragmentShader: shader.terrainFragment, uniforms: {
       ...this.shared(), uPool: { value: POOL } } });
     const terrain = new THREE.Mesh(terrainGeometry, this.terrain);
@@ -83,6 +85,10 @@ export class Landscape {
     this.addSparks(above.traffic, COLD, 8);
     this.addSparks(above.plumes, LIGHT, 6, .5);
     this.addStrokes(above.strokes, COLONY, .3);
+
+    // life and weather (./landscapeFlora): bioluminescent flora growing with the stages, dust motes, dust devils, meteors, pool mist
+    this.flora = buildFlora();
+    this.add(...this.flora.objects);
   }
 
   private shared() {
@@ -127,28 +133,36 @@ export class Landscape {
     this.sky.uniforms.uCamWorld.value.copy(camera.matrixWorld);
     this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
     for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
-    updateRocks(this.rocks, time, camera, key, this.fog, this.stage);
+    updateRocks(this.rocks, time, camera, this.key, this.fog, this.stage);
+    this.flora.update(time, camera, this.key, this.fog, this.stage);
     const px = 2 / (innerWidth * this.ratio), py = 2 / (innerHeight * this.ratio);
     for (const o of this.offset) o.m.uniforms.uOffset.value.set(o.x * px, o.y * py);
   }
 
-  dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); }
+  dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); this.flora.dispose(); }
 }
 
 const hash = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
 
-/** Square grid over EXTENT, vertices jittered off the lattice (except on the plain) so the facets fall irregularly. */
+/**
+ * Square grid over EXTENT, vertices jittered off the lattice (except on the plain) so the silhouettes fall irregularly, denser
+ * toward the stele (the band the camera sees up close) and with analytic smooth normals from heightAt so the dunes shade as
+ * continuous regolith rather than facets; the shader adds the per-pixel detail.
+ */
 function grid(segments: number) {
-  const n = segments + 1, position = new Float32Array(n * n * 3), relief = new Float32Array(n * n), index: number[] = [];
-  const step = EXTENT / segments;
+  const n = segments + 1, position = new Float32Array(n * n * 3), normal = new Float32Array(n * n * 3), relief = new Float32Array(n * n), index: number[] = [];
+  const warp = (t: number) => { const u = t * 2 - 1; return (Math.sign(u) * (Math.abs(u) * .55 + u * u * .45) + 1) * .5; };
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const k = j * n + i;
     const edge = i === 0 || j === 0 || i === segments || j === segments ? 0 : 1;
-    let x = (i / segments - .5) * EXTENT, z = (j / segments - .5) * EXTENT;
+    let x = (warp(i / segments) - .5) * EXTENT, z = (warp(j / segments) - .5) * EXTENT;
+    const step = EXTENT / segments * (.55 + .9 * Math.hypot(x, z) / EXTENT);
     const jitter = .38 * step * edge * THREE.MathUtils.smoothstep(Math.hypot(x, z), 7, 14);
     x += (hash(i, j) - .5) * jitter; z += (hash(j + 7.3, i) - .5) * jitter;
-    const h = heightAt(x, z);
+    const h = heightAt(x, z), e = Math.max(.35, step * .5);
     position[k * 3] = x; position[k * 3 + 1] = h.y; position[k * 3 + 2] = z; relief[k] = h.relief;
+    const nx = heightAt(x - e, z).y - heightAt(x + e, z).y, nz = heightAt(x, z - e).y - heightAt(x, z + e).y, l = Math.hypot(nx, 2 * e, nz);
+    normal[k * 3] = nx / l; normal[k * 3 + 1] = 2 * e / l; normal[k * 3 + 2] = nz / l;
   }
   for (let j = 0; j < segments; j++) for (let i = 0; i < segments; i++) {
     const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
@@ -156,6 +170,7 @@ function grid(segments: number) {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
   g.setAttribute('aRelief', new THREE.BufferAttribute(relief, 1));
   g.setIndex(index);
   return g;

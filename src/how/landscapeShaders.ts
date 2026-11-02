@@ -16,6 +16,11 @@ vec3 sky(vec3 d,vec3 fog,float hz,float t,vec3 key,float stage){
  vec3 top=vec3(.0015,.0012,.0023);
  vec3 c=mix(fog,top,k);
  c*=1.+(n-.5)*.28*(1.-k);
+ /* stratified dust: thin horizontal layers drifting over the low sky, and a finer high haze that breaks the gradient up */
+ float layers=0.;{vec3 lq=vec3(d.x*1.2+t*.006,e*26.,d.z*1.2);layers=(vnoise(lq)*.6+vnoise(lq*vec3(2.3,1.7,2.3)+vec3(5.,0.,2.))*.4-.5);}
+ c*=1.+layers*.22*exp(-pow((e-hz-.05)/.12,2.));
+ float cirrus=ridged(vec3(d.x*3.5+t*.004,e*9.+t*.002,d.z*3.5))-.55;
+ c+=fog*max(cirrus,0.)*.16*smoothstep(hz+.05,hz+.3,e)*(1.-smoothstep(.3,.7,e));
  c+=fog*exp(-pow((e-hz)/.04,2.))*.18;
  /* the key light glows through the dust low in the sky on its side */
  float toward=max(0.,dot(normalize(vec3(d.x,0.,d.z)),normalize(vec3(key.x,0.,key.z))));
@@ -42,31 +47,45 @@ void main(){vec3 d=normalize(vRay);vec3 c=sky(d,uFog,uHorizon,uTime,uKey,uStage)
 `;
 
 /**
- * Terrain: flat-shaded (screen derivatives) so the dunes read low-poly; the planet's basalt→rust albedo lit by the key with the
- * home page's violet wrap; fragments at or below the pool level become a flat glossy surface that mirrors the sky with a
+ * Terrain: smooth-shaded regolith — the mesh's analytic normal (falling back to screen derivatives for solids without one) plus a
+ * per-pixel bump of wind ripples, grain and scattered rubble that fades with distance; the planet's basalt→rust albedo, broken up
+ * by large-scale dust/basalt streaks and pale dust pooling in the basins, lit by the key with the home page's violet wrap; fragments at or below the pool level become a flat glossy surface that mirrors the sky with a
  * Fresnel weight and takes a hard specular from the key. Distance haze is exp(-d²k) toward the sky behind the fragment.
  */
 export const terrainVertex = /* glsl */`
-attribute float aRelief;attribute float aBirth;uniform float uStage;varying vec3 vWorld;varying float vRelief;varying float vBorn;
-void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vRelief=aRelief;vBorn=step(aBirth-.4,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
+attribute float aRelief;attribute float aBirth;uniform float uStage;varying vec3 vWorld;varying vec3 vNormal;varying float vRelief;varying float vBorn;
+void main(){vec4 w=modelMatrix*vec4(position,1.);vWorld=w.xyz;vNormal=mat3(modelMatrix)*normal;vRelief=aRelief;vBorn=step(aBirth-.4,uStage);gl_Position=projectionMatrix*viewMatrix*w;}
 `;
 export const terrainFragment = /* glsl */`
 precision highp float;
 uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uniform float uPool;uniform float uFogK;uniform float uHorizon;uniform float uFogH;uniform float uBase;uniform float uStage;
-varying vec3 vWorld;varying float vRelief;varying float vBorn;
+varying vec3 vWorld;varying vec3 vNormal;varying float vRelief;varying float vBorn;
 ${noise}
 ${skyChunk}
+/* regolith micro-relief in world xz: wind ripples across the dune direction, fine grain, and sparse rubble bumps */
+float regolith(vec2 p){
+ float rip=sin(p.x*1.9+p.y*.7+vnoise(vec3(p*.21,3.))*5.)*.5+.5;rip*=rip;
+ float grain=vnoise(vec3(p*2.6,7.))*.5+vnoise(vec3(p*7.,11.))*.25;
+ float rub=vnoise(vec3(p*1.1,19.));rub=smoothstep(.62,.8,rub);
+ return rip*.35+grain*.45+rub*.22;}
 void main(){
  if(vBorn<.5)discard;
- vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));if(n.y<0.)n=-n;
+ vec3 gn=normalize(cross(dFdx(vWorld),dFdy(vWorld)));if(gn.y<0.)gn=-gn;
+ vec3 n=length(vNormal)>.5?normalize(vNormal):gn;
  vec3 toEye=uCamera-vWorld;float dist=length(toEye);vec3 eye=toEye/dist;vec3 key=normalize(uKey);
+ /* per-pixel detail: finite-differenced regolith height into the smooth normal, strongest near, gone in the haze */
+ float detail=(1.-smoothstep(15.,110.,dist))*smoothstep(uPool+.02,uPool+.5,vRelief);
+ if(detail>.001){vec2 p=vWorld.xz;float e=.12;float h0=regolith(p);float hx=regolith(p+vec2(e,0.));float hz=regolith(p+vec2(0.,e));
+  n=normalize(n+vec3(h0-hx,0.,h0-hz)*(1.7*detail));}
  float lowland=smoothstep(-1.,5.,vRelief);
- vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05);vec3 albedo=mix(basalt,rust,lowland)*.32;
- float facet=.86+.28*hash(floor(vWorld*vec3(.41,.9,.41)+vec3(dot(n,vec3(7.3,3.1,5.7)))));
- float diffuse=pow(max(0.,dot(n,key)),1.6)*facet;
- vec3 c=albedo*(diffuse*.55*vec3(1.,.93,.84)+.004)+albedo*vec3(.07,.11,.30)*pow(max(0.,dot(n,normalize(vec3(.6,.5,.75)))),1.4)*.16;
- /* the dust-lit sky falls on upward facets, so crests take the fog's tint; a satin sheen catches the key on crests facing it */
- c+=albedo*uFog*(.35+.65*n.y)*.9;
+ /* albedo: basalt→rust by relief, broken by large dark streaks on the flanks and pale dust pooled in the basins */
+ float streak=fbm(vec3(vWorld.xz*.045,1.5));float dustp=smoothstep(.45,.75,fbm(vec3(vWorld.xz*.02+7.,4.)))*(1.-smoothstep(1.5,4.5,vRelief))*n.y;
+ vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.34,.19,.12);
+ vec3 albedo=mix(basalt,rust,lowland*(.55+.9*streak));albedo=mix(albedo,pale,dustp*.6);albedo*=.32;
+ float diffuse=pow(max(0.,dot(n,key)),1.4)*smoothstep(-.1,.3,dot(normalize(length(vNormal)>.5?vNormal:gn),key));
+ vec3 c=albedo*(diffuse*.62*vec3(1.,.93,.84)+.004)+albedo*vec3(.07,.11,.30)*pow(max(0.,dot(n,normalize(vec3(.6,.5,.75)))),1.4)*.16;
+ /* the dust-lit sky falls on upward faces, so crests take the fog's tint; a satin sheen catches the key on crests facing it */
+ c+=albedo*uFog*(.35+.65*max(n.y,0.))*.9;
  c+=pow(max(0.,dot(n,normalize(key+eye))),28.)*uFog*.35*smoothstep(1.,4.,vRelief);
  /* pools: flat, mirroring the sky with a Fresnel weight, a hard key glint */
  vec3 up=vec3(0.,1.,0.);float cosE=max(0.,eye.y);float f=.04+.96*pow(1.-cosE,5.);
