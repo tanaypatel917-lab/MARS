@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fbm } from '../geometry';
 import { noise } from '../shaders';
-import { heightAt, normalAt, seeded, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON } from './landscapeTerrain';
+import { heightAt, normalAt, seeded, FOG, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON } from './landscapeTerrain';
 import { skyChunk } from './landscapeShaders';
 import { CRATERS } from './landscapeGroundRelief';
-import { FOG } from './landscape';
 
 /**
  * Life and weather on the plain under the /how stele — the one cool accent in a black / rust / basalt frame:
@@ -29,7 +28,7 @@ import { FOG } from './landscape';
  * Everything is deterministic (seeded()), all motion is in the shaders via uTime; `update` only copies uniforms (and walks the
  * two dust devils along their paths, two heightAt calls).
  */
-export function buildFlora(): {
+export function buildFlora(calm = false): {
   objects: THREE.Object3D[];
   update(time: number, camera: THREE.Camera, key: THREE.Vector3, fog: THREE.Color, stage: number): void;
   dispose(): void;
@@ -51,10 +50,10 @@ export function buildFlora(): {
   { const g = halos.geometry(), m = material(haloVertex, haloFragment, { uSize: { value: 1 } }, THREE.AdditiveBlending); add(new THREE.Points(g, m), g, m); points += g.attributes.position.count; }
   { const g = discs.geometry(), m = material(discVertex, discFragment, {}, THREE.AdditiveBlending); add(new THREE.Mesh(g, m), g, m); triangles += g.index!.count / 3; }
   { const g = spores.geometry(), m = material(sporeVertex, haloFragment, { uSize: { value: 1 } }, THREE.AdditiveBlending); add(new THREE.Points(g, m), g, m); points += g.attributes.position.count; }
-  { const g = motes(rand), m = material(moteVertex, moteFragment, { uSize: { value: 1 } }, THREE.AdditiveBlending); add(new THREE.Points(g, m), g, m); points += g.attributes.position.count; }
-  const devils = DEVILS.map(d => { const g = funnel(d.height), m = material(devilVertex, devilFragment, { uPos: { value: new THREE.Vector3() }, uSeed: { value: d.seed }, uHeight: { value: d.height } }, THREE.NormalBlending, THREE.DoubleSide); add(new THREE.Mesh(g, m), g, m); triangles += g.index!.count / 3; return { ...d, m }; });
-  { const g = mist(clusters, rand), m = material(mistVertex, mistFragment, {}, THREE.NormalBlending, THREE.DoubleSide); add(new THREE.Mesh(g, m), g, m); triangles += g.index!.count / 3; }
-  { const g = meteor(), m = material(meteorVertex, meteorFragment, {}, THREE.AdditiveBlending); add(new THREE.Line(g, m), g, m); lineVertices += g.attributes.position.count; }
+  if (!calm) { const g = motes(rand), m = material(moteVertex, moteFragment, { uSize: { value: 1 } }, THREE.AdditiveBlending); add(new THREE.Points(g, m), g, m); points += g.attributes.position.count; }
+  const devils = (calm ? [] : DEVILS).map(d => { const g = funnel(d.height), m = material(devilVertex, devilFragment, { uPos: { value: new THREE.Vector3() }, uSeed: { value: d.seed }, uHeight: { value: d.height } }, THREE.NormalBlending, THREE.DoubleSide); add(new THREE.Mesh(g, m), g, m); triangles += g.index!.count / 3; return { ...d, m }; });
+  if (!calm) { const g = mist(clusters, rand), m = material(mistVertex, mistFragment, {}, THREE.NormalBlending, THREE.DoubleSide); add(new THREE.Mesh(g, m), g, m); triangles += g.index!.count / 3; }
+  if (!calm) { const g = meteor(), m = material(meteorVertex, meteorFragment, {}, THREE.AdditiveBlending); add(new THREE.Line(g, m), g, m); lineVertices += g.attributes.position.count; }
 
   const ratio = Math.min((typeof devicePixelRatio === 'number' ? devicePixelRatio : 1) || 1, 2);
   for (const m of materials) if (m.uniforms.uSize) m.uniforms.uSize.value = ratio;

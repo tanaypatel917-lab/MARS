@@ -66,6 +66,7 @@ const d = (seconds: number) => reduced ? 0 : seconds;
 let world: HowWorld | null = null;
 try { world = new HowWorld(canvas, mobile); } catch (error) { console.warn('WebGL unavailable', error); select('#fallback').hidden = false; }
 body.dataset.renderer = world ? 'ready' : 'fallback';
+if (world) body.dataset.tier = world.tier;
 body.dataset.intro = 'done';
 body.dataset.ui = 'on';
 

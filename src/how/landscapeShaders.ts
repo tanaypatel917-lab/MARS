@@ -11,16 +11,22 @@ import { noise } from '../shaders';
 export const skyChunk = /* glsl */`
 vec3 sky(vec3 d,vec3 fog,float hz,float t,vec3 key,float stage){
  float e=d.y;
+#ifdef LITE
+ float n=.5+(vnoise(d*vec3(2.6,5.2,2.6)+vec3(t*.012,0.,t*.008))-.5)*.5;
+#else
  float n=0.,a=.5;vec3 q=d*vec3(2.6,5.2,2.6)+vec3(t*.012,0.,t*.008);for(int i=0;i<3;i++){n+=a*vnoise(q);q=q*2.1+vec3(1.3,7.7,3.1);a*=.5;}
+#endif
  float k=smoothstep(hz,hz+.26,e+(n-.44)*.05);k=pow(k,.42);
  vec3 top=vec3(.0015,.0012,.0023);
  vec3 c=mix(fog,top,k);
  c*=1.+(n-.5)*.28*(1.-k);
- /* stratified dust: thin horizontal layers drifting over the low sky, and a finer high haze that breaks the gradient up */
+ /* stratified dust: thin horizontal layers drifting over the low sky, and a finer high haze that breaks the gradient up (not on the lite tier) */
+#ifndef LITE
  float layers=0.;{vec3 lq=vec3(d.x*1.2+t*.006,e*26.,d.z*1.2);layers=(vnoise(lq)*.6+vnoise(lq*vec3(2.3,1.7,2.3)+vec3(5.,0.,2.))*.4-.5);}
  c*=1.+layers*.22*exp(-pow((e-hz-.05)/.12,2.));
  float cirrus=ridged(vec3(d.x*3.5+t*.004,e*9.+t*.002,d.z*3.5))-.55;
  c+=fog*max(cirrus,0.)*.16*smoothstep(hz+.05,hz+.3,e)*(1.-smoothstep(.3,.7,e));
+#endif
  c+=fog*exp(-pow((e-hz)/.04,2.))*.18;
  /* the key light glows through the dust low in the sky on its side */
  float toward=max(0.,dot(normalize(vec3(d.x,0.,d.z)),normalize(vec3(key.x,0.,key.z))));
@@ -75,11 +81,18 @@ void main(){
  vec3 toEye=uCamera-vWorld;float dist=length(toEye);vec3 eye=toEye/dist;vec3 key=normalize(uKey);
  /* per-pixel detail: finite-differenced regolith height into the smooth normal, strongest near, gone in the haze */
  float detail=(1.-smoothstep(15.,110.,dist))*smoothstep(uPool+.02,uPool+.5,vRelief);
+#ifdef LITE
+ detail=0.;
+#endif
  if(detail>.001){vec2 p=vWorld.xz;float e=.12;float h0=regolith(p);float hx=regolith(p+vec2(e,0.));float hz=regolith(p+vec2(0.,e));
   n=normalize(n+vec3(h0-hx,0.,h0-hz)*(1.7*detail));}
  float lowland=smoothstep(-1.,5.,vRelief);
  /* albedo: basalt→rust by relief, broken by large dark streaks on the flanks and pale dust pooled in the basins */
+#ifdef LITE
+ float streak=.5,dustp=0.;
+#else
  float streak=fbm(vec3(vWorld.xz*.045,1.5));float dustp=smoothstep(.45,.75,fbm(vec3(vWorld.xz*.02+7.,4.)))*(1.-smoothstep(1.5,4.5,vRelief))*n.y;
+#endif
  vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.34,.19,.12);
  vec3 albedo=mix(basalt,rust,lowland*(.55+.9*streak));albedo=mix(albedo,pale,dustp*.6);albedo*=.32;
  float diffuse=pow(max(0.,dot(n,key)),1.4)*smoothstep(-.1,.3,dot(normalize(length(vNormal)>.5?vNormal:gn),key));

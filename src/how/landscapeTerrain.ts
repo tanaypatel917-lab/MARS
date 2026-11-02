@@ -10,6 +10,8 @@ import { groundRelief } from './landscapeGroundRelief';
  * The plain lies BASE below the stele and falls DROP further toward the horizon, so from that camera the far terrain dissolves
  * ~55 % down the frame and the nearest ridges rise to just under the stele's base.
  */
+/** Fog tint per move (loop, observe, evaluate, refine, ascend); the page tweens `Landscape.fog` between them. */
+export const FOG = ['#3a3220', '#1d3838', '#2f4433', '#3a1a12', '#2a0c0e'];
 export const EXTENT = 440;
 /** Level of the plain under the stele; the land falls DROP further toward the horizon. */
 export const BASE = -9, DROP = 12;

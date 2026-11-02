@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fbm } from '../geometry';
 import { noise } from '../shaders';
-import { heightAt, isLand, seeded, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON } from './landscapeTerrain';
+import { heightAt, isLand, seeded, FOG, POOL, BASE, FOG_K, FOG_SCALE_HEIGHT, HORIZON } from './landscapeTerrain';
 import { Strokes, Sparks, Solids, type Vec3 } from './landscapeKit';
 import { skyChunk } from './landscapeShaders';
-import { FOG } from './landscape';
 import { CRATERS } from './landscapeGroundRelief';
 
 /**
@@ -23,11 +22,11 @@ import { CRATERS } from './landscapeGroundRelief';
  *
  * Everything sits on `ground()` = heightAt + groundRelief, so it stays seated once the terrain gets the relief too.
  */
-export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; cold: THREE.BufferGeometry; dust: THREE.BufferGeometry; rocks: THREE.Mesh } {
+export function buildGround(lite = false): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; cold: THREE.BufferGeometry; dust: THREE.BufferGeometry; rocks: THREE.Mesh } {
   const solids = new Solids(), strokes = new Strokes(), lights = new Sparks(), cold = new Sparks(), dust = new Sparks(), rocks = new Rocks();
   const rand = seeded(2026);
   TRACKS.length = 0;
-  const fields = boulders(rocks, rand);
+  const fields = boulders(rocks, rand, lite);
   outcrops(rocks, rand);
   for (const p of PADS) pad(solids, p);
   tracks(strokes, fields, rand);
@@ -40,7 +39,7 @@ export function buildGround(): { solids: THREE.BufferGeometry; strokes: THREE.Bu
   debris(strokes, solids, rand);
   antennaFarms(strokes, cold, rand);
   dustDevils(dust, rand);
-  const mesh = new THREE.Mesh(rocks.geometry(), rockMaterial()); mesh.frustumCulled = false;
+  const mesh = new THREE.Mesh(rocks.geometry(), rockMaterial(lite)); mesh.frustumCulled = false;
   return { solids: solids.geometry(), strokes: strokes.geometry(), lights: lights.geometry(), cold: cold.geometry(), dust: dust.geometry(), rocks: mesh };
 }
 
@@ -147,14 +146,16 @@ function boulder(rocks: Rocks, x: number, z: number, size: number, relief: numbe
  * ~600 boulders: a dozen foreground masses (4 … 7 u) at 24 … 36 u, banks on the crater rims and aprons, fields at the dune feet,
  * scree of 2 … 3 u rocks along the pool shores, and a fill weighted into the 22 … 50 u band the camera sees large.
  */
-function boulders(rocks: Rocks, rand: () => number): Site[] {
+function boulders(rocks: Rocks, rand: () => number, lite = false): Site[] {
   let n = 0;
+  /* the lite tier seats half the foreground masses and fill: the near rocks cover the most pixels of the per-pixel relief shader */
+  const masses_ = lite ? 6 : 12, screeMax = lite ? 35 : 70, total = lite ? 300 : 600;
   const place = (x: number, z: number, size: number, birth: number, margin: number) => {
     if (Math.hypot(x, z) < 22 || !isLand(x, z, margin) || nearPad(x, z, 1)) return false;
     boulder(rocks, x, z, size, 2 + rand() * 3, birth, rand); n++; return true;
   };
   const masses: [number, number][] = [];
-  for (let tries = 0; tries < 3000 && masses.length < 12; tries++) {
+  for (let tries = 0; tries < 3000 && masses.length < masses_; tries++) {
     const a = rand() * TAU, r = 24 + rand() * 12, x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (masses.some(m => Math.hypot(m[0] - x, m[1] - z) < 9) || HABITATS.some(h => Math.hypot(h[0] - x, h[1] - z) < h[2] + 5)) continue;
     if (place(x, z, 4 + rand() * 3, 0, .6)) masses.push([x, z]);
@@ -179,12 +180,12 @@ function boulders(rocks: Rocks, rand: () => number): Site[] {
       place(x + Math.cos(b) * d, z + Math.sin(b) * d, .4 + 2.2 * Math.pow(rand(), 2.6), 0, .22);
     }
   }
-  for (let tries = 0, scree = 0; tries < 6000 && scree < 70; tries++) {
+  for (let tries = 0, scree = 0; tries < 6000 && scree < screeMax; tries++) {
     const a = rand() * TAU, r = 24 + Math.sqrt(rand()) * 50, x = Math.cos(a) * r, z = Math.sin(a) * r, h = heightAt(x, z);
     if (h.relief < POOL + .3 || h.relief > POOL + .95) continue;
     if (place(x, z, 2 + rand(), 0, .22)) scree++;
   }
-  while (n < 600) {
+  while (n < total) {
     const a = rand() * TAU, r = 22 + Math.pow(rand(), 1.5) * 112;
     place(Math.cos(a) * r, Math.sin(a) * r, .4 + 1.6 * Math.pow(rand(), 2.2), 0, .4);
   }
@@ -233,7 +234,11 @@ uniform vec3 uKey;uniform vec3 uCamera;uniform vec3 uFog;uniform float uTime;uni
 varying vec3 vWorld;varying vec3 vNormal;varying vec3 vLocal;varying float vSeed;varying float vRelief;varying float vBorn;
 ${noise}
 ${skyChunk}
+#ifdef LITE
+float relief(vec3 s){return fbm(s*2.6)*.62+.18;}
+#else
 float relief(vec3 s){return fbm(s*2.6)*.62+ridged(s*7.)*.3+fbm(s*17.)*.06;}
+#endif
 void main(){
  if(vBorn<.5)discard;
  vec3 n=normalize(vNormal);vec3 toEye=uCamera-vWorld;float dist=length(toEye);vec3 eye=toEye/dist;vec3 key=normalize(uKey);
@@ -244,7 +249,11 @@ void main(){
  vec3 pn=normalize(n-(t*(hx-h0)+b*(hy-h0))*bump);
  float lowland=smoothstep(-1.,5.,vRelief);
  vec3 basalt=vec3(.045,.024,.018),rust=vec3(.27,.10,.05),pale=vec3(.36,.19,.12);
+#ifdef LITE
+ float dust=smoothstep(.15,.85,pn.y)*.5*lowland;
+#else
  float dust=smoothstep(.15,.85,pn.y)*smoothstep(.3,.75,fbm(s*2.+5.))*lowland;
+#endif
  vec3 albedo=mix(basalt,rust,lowland*(.5+.5*h0));albedo=mix(albedo,pale,dust*.55);albedo*=(.7+.6*h0)*.42;
  float diffuse=max(0.,dot(pn,key));float terminator=smoothstep(-.08,.35,dot(n,key));
  float wrap=pow(max(0.,dot(pn,normalize(vec3(.6,.5,.75)))),1.4);
@@ -259,8 +268,8 @@ void main(){
  gl_FragColor=vec4(pow(max(c,0.),vec3(1./2.2))+grain,1.);}
 `;
 
-function rockMaterial() {
-  return new THREE.ShaderMaterial({ vertexShader: rockVertex, fragmentShader: rockFragment, uniforms: {
+function rockMaterial(lite: boolean) {
+  return new THREE.ShaderMaterial({ vertexShader: rockVertex, fragmentShader: rockFragment, defines: lite ? { LITE: 1 } : {}, uniforms: {
     uKey: { value: new THREE.Vector3(-.62, .5, .6).normalize() }, uCamera: { value: new THREE.Vector3(0, .6, 5.6) }, uFog: { value: new THREE.Color(FOG[0]) },
     uTime: { value: 0 }, uStage: { value: 0 }, uFogK: { value: FOG_K }, uFogH: { value: FOG_SCALE_HEIGHT }, uBase: { value: BASE }, uHorizon: { value: HORIZON } } });
 }
