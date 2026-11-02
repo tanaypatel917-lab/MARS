@@ -14,7 +14,7 @@ async function run(viewport, label, extra = '') {
   for (const frame of frames) {
     await page.goto(`http://localhost:${port}/how?frame=${frame}${extra}${process.env.TIER ? `&tier=${process.env.TIER}` : ''}`);
     await page.waitForFunction(() => document.body.dataset.ready === 'true');
-    await page.waitForTimeout(3200);
+    await page.waitForTimeout(3200 + Number(process.env.SETTLE ?? 0)); // SETTLE=ms: extra time for the stele to assemble on slow (software GL) machines
     const ms = await page.evaluate(() => new Promise(r => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 > 2500) r((performance.now() - t0) / n); else requestAnimationFrame(f); }; requestAnimationFrame(f); }));
     const size = await page.locator('canvas#scene').evaluate(c => [c.width, c.height]);
     await page.screenshot({ path: `${out}/${label}-${frame}.png` });

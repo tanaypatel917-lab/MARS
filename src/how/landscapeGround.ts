@@ -22,7 +22,8 @@ import { CRATERS } from './landscapeGroundRelief';
  *
  * Everything sits on `ground()` = heightAt + groundRelief, so it stays seated once the terrain gets the relief too.
  */
-export function buildGround(lite = false): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; cold: THREE.BufferGeometry; dust: THREE.BufferGeometry; rocks: THREE.Mesh } {
+/** `lite` also covers phones: fewer, coarser rocks; the LITE shader define only when `liteShader`. */
+export function buildGround(lite = false, liteShader = lite): { solids: THREE.BufferGeometry; strokes: THREE.BufferGeometry; lights: THREE.BufferGeometry; cold: THREE.BufferGeometry; dust: THREE.BufferGeometry; rocks: THREE.Mesh } {
   const solids = new Solids(), strokes = new Strokes(), lights = new Sparks(), cold = new Sparks(), dust = new Sparks(), rocks = new Rocks();
   const rand = seeded(2026);
   TRACKS.length = 0;
@@ -39,7 +40,7 @@ export function buildGround(lite = false): { solids: THREE.BufferGeometry; strok
   debris(strokes, solids, rand);
   antennaFarms(strokes, cold, rand);
   dustDevils(dust, rand);
-  const mesh = new THREE.Mesh(rocks.geometry(), rockMaterial(lite)); mesh.frustumCulled = false;
+  const mesh = new THREE.Mesh(rocks.geometry(), rockMaterial(liteShader)); mesh.frustumCulled = false;
   return { solids: solids.geometry(), strokes: strokes.geometry(), lights: lights.geometry(), cold: cold.geometry(), dust: dust.geometry(), rocks: mesh };
 }
 
@@ -132,14 +133,14 @@ class Rocks {
 }
 
 /** Tessellation by size (three 0.180 icosahedron detail is linear: 20·(d+1)² tris): small rubble 80 tris, big rocks and outcrops 320. */
-const detailFor = (size: number) => size < 2.4 ? 1 : size < 4.5 ? 2 : 3;
+const detailFor = (size: number, sparse: boolean) => size < 2.4 ? 1 : size < 4.5 || sparse ? 2 : 3;
 
 /** A boulder, half buried, seated on the ground and tilted with it; the long axis turned at random. */
-function boulder(rocks: Rocks, x: number, z: number, size: number, relief: number, birth: number, rand: () => number) {
+function boulder(rocks: Rocks, x: number, z: number, size: number, relief: number, birth: number, rand: () => number, sparse = false) {
   const scale = new THREE.Vector3(size * (.8 + rand() * .4), size * (.55 + rand() * .4), size * (.8 + rand() * .4));
   const q = new THREE.Quaternion().setFromUnitVectors(UP, groundNormal(x, z)).multiply(new THREE.Quaternion().setFromAxisAngle(UP, rand() * TAU))
     .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (rand() - .5) * .5));
-  rocks.add(detailFor(size), new THREE.Vector3(x, ground(x, z) - .2 + scale.y * .6, z), q, scale, relief, birth, rand);
+  rocks.add(detailFor(size, sparse), new THREE.Vector3(x, ground(x, z) - .2 + scale.y * .6, z), q, scale, relief, birth, rand);
 }
 
 /**
@@ -148,11 +149,11 @@ function boulder(rocks: Rocks, x: number, z: number, size: number, relief: numbe
  */
 function boulders(rocks: Rocks, rand: () => number, lite = false): Site[] {
   let n = 0;
-  /* the lite tier seats half the foreground masses and fill: the near rocks cover the most pixels of the per-pixel relief shader */
+  /* sparse (lite tier or phone): half the foreground masses and fill, 180-tri big rocks; the near rocks cover the most pixels of the relief shader */
   const masses_ = lite ? 6 : 12, screeMax = lite ? 35 : 70, total = lite ? 300 : 600;
   const place = (x: number, z: number, size: number, birth: number, margin: number) => {
     if (Math.hypot(x, z) < 22 || !isLand(x, z, margin) || nearPad(x, z, 1)) return false;
-    boulder(rocks, x, z, size, 2 + rand() * 3, birth, rand); n++; return true;
+    boulder(rocks, x, z, size, 2 + rand() * 3, birth, rand, lite); n++; return true;
   };
   const masses: [number, number][] = [];
   for (let tries = 0; tries < 3000 && masses.length < masses_; tries++) {

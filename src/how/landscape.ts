@@ -18,9 +18,9 @@ export type Quality = 'full' | 'mid' | 'lite';
  *
  * Heights, fog constants and the camera convention live in ./landscapeTerrain; geometry builders in ./landscapeKit.
  *
- * `quality` is the page's tier (src/scene.ts detectTier): `lite` draws a coarser grid, single-pass hairlines, no flora, dust or
- * plumes and skips the per-pixel regolith / sky-layer shading (LITE define); `mid` keeps the detail but drops the extra
- * hairline passes and the dust motes' weather.
+ * `quality` is the page's tier (src/scene.ts detectTier): `lite` draws single-pass hairlines, no flora and skips the per-pixel
+ * regolith / sky-layer shading (LITE define); `mid` keeps the detail but drops the extra hairline passes and the dust motes'
+ * weather. Lite and phones (`mobile`) share the sparse set: a coarser grid, half the boulders, no ground dust or plumes.
  */
 const KEY = new THREE.Vector3(-.62, .5, .6).normalize();
 const COLONY = 0xece6dc, LIGHT = 0xffb27a, COLD = 0x9fc4d8;
@@ -37,6 +37,7 @@ export class Landscape {
   private readonly rocks: THREE.Mesh;
   private readonly flora: ReturnType<typeof buildFlora> | null;
   private readonly lite: boolean;
+  private readonly sparse: boolean;
   /** Hairline passes offset by whole device pixels, so the 1-px GL lines read as ~2-px strokes. */
   private readonly offset: { m: THREE.ShaderMaterial; x: number; y: number }[] = [];
   private readonly ratio = Math.min(devicePixelRatio || 1, 2);
@@ -46,6 +47,7 @@ export class Landscape {
   constructor(scene: THREE.Scene, mobile: boolean, readonly quality: Quality = 'full') {
     this.scene = scene;
     this.lite = quality === 'lite';
+    this.sparse = this.lite || mobile;
     const defines = this.lite ? { LITE: 1 } : {};
 
     // sky: a background quad that reconstructs the view ray per pixel so the gradient stays on the world horizon as the camera orbits
@@ -58,7 +60,7 @@ export class Landscape {
     this.add(sky); this.disposables.push(skyGeometry, this.sky);
 
     // terrain: a jittered grid built in world space (x, height, z)
-    const terrainGeometry = grid(this.lite ? (mobile ? 90 : 130) : mobile ? 140 : 240);
+    const terrainGeometry = grid(this.sparse ? (mobile ? 80 : 130) : 240);
     this.terrain = new THREE.ShaderMaterial({ vertexShader: shader.terrainVertex, fragmentShader: shader.terrainFragment, defines, uniforms: {
       ...this.shared(), uPool: { value: POOL } } });
     const terrain = new THREE.Mesh(terrainGeometry, this.terrain);
@@ -75,12 +77,12 @@ export class Landscape {
     this.addSolid(colony.solids);
 
     // the ground's detail (./landscapeGround): boulders, outcrops, landing pads, tyre tracks, survey stakes, beacons
-    const ground = buildGround(this.lite);
+    const ground = buildGround(this.sparse, this.lite);
     this.addSolid(ground.solids);
     this.addStrokes(ground.strokes, COLONY, .22);
     this.addSparks(ground.lights, LIGHT, 12);
     this.addSparks(ground.cold, COLD, 10);
-    if (!this.lite) this.addSparks(ground.dust, COLONY, 5, .35);
+    if (!this.sparse) this.addSparks(ground.dust, COLONY, 5, .35);
     this.rocks = ground.rocks; this.add(this.rocks); this.disposables.push(this.rocks.geometry, this.rocks.material as THREE.Material);
 
     // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works
@@ -89,7 +91,7 @@ export class Landscape {
     this.addSolid(above.moons);
     this.addSparks(above.stars, COLONY, 4, .7);
     this.addSparks(above.traffic, COLD, 8);
-    if (!this.lite) this.addSparks(above.plumes, LIGHT, 6, .5);
+    if (!this.sparse) this.addSparks(above.plumes, LIGHT, 6, .5);
     this.addStrokes(above.strokes, COLONY, .3);
 
     // life and weather (./landscapeFlora): bioluminescent flora growing with the stages, dust motes, dust devils, meteors, pool mist

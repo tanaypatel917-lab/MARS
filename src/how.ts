@@ -223,7 +223,7 @@ const tick = (now: number) => {
   state.pointer.x = pointer.nx; state.pointer.y = pointer.ny;
   cursorPos.x += (pointer.x - cursorPos.x) * Math.min(1, dt * 22); cursorPos.y += (pointer.y - cursorPos.y) * Math.min(1, dt * 22);
   cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px) translate(-50%, -50%)`;
-  if (world) world.render(state);
+  if (world && !document.hidden) world.render(state);
   if ((now | 0) % 2 === 0) drawWave();
   requestAnimationFrame(tick);
 };
