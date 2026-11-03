@@ -10,7 +10,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node scripts/verify.mjs",
+    "test": "node scripts/verify.mjs && node scripts/howcheck.mjs",
     "postinstall": "node scripts/fonts.mjs"
   },
   "dependencies": {

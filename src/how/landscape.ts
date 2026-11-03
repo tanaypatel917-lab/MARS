@@ -1,80 +1,135 @@
 import * as THREE from 'three';
-import { fbm } from '../geometry';
 import * as shader from './landscapeShaders';
+import { EXTENT, BASE, POOL, FOG, FOG_K, FOG_SCALE_HEIGHT, HORIZON, heightAt } from './landscapeTerrain';
+import { buildColony } from './landscapeColony';
+import { buildGround, updateRocks } from './landscapeGround';
+import { buildSky } from './landscapeSky';
+import { buildFlora } from './landscapeFlora';
+
+export { heightAt, POOL, FOG } from './landscapeTerrain';
+export type Quality = 'full' | 'mid' | 'lite';
 
 /**
  * The colonised Martian landscape under the /how stele, after the fog-tinted low-poly plains of Guillaume's home: rolling
  * dunes with flat glossy pools in the valleys, a plateau the stele stands on, a dust fog that dissolves the far terrain into a
  * sky gradient of the same tint, and the hairline ivory colony with its warm window lights. One colour, `fog`, tints all of it;
- * the page tweens it between the FOG entries per move and the shaders read it each frame.
+ * the page tweens it between the FOG entries per move and the shaders read it each frame. `stage` (0 … 4, tween it alongside
+ * the fog) is how far the colonisation has come: structures born at a later stage draw on as it passes them.
  *
- * Camera convention: the stele is at the origin, the camera orbits at radius ~5.6, height ~.6, looking at (0,.2,0), fov 34.
- * The plain lies ~10 units below the stele and slopes away, so from that camera the horizon dissolves ~58 % down the frame
- * and the nearest ridges rise to just under the stele's base.
+ * Heights, fog constants and the camera convention live in ./landscapeTerrain; geometry builders in ./landscapeKit.
+ *
+ * `quality` is the page's tier (src/scene.ts detectTier): `lite` draws single-pass hairlines, no flora and skips the per-pixel
+ * regolith / sky-layer shading (LITE define); `mid` keeps the detail but drops the extra hairline passes and the dust motes'
+ * weather. Lite and phones (`mobile`) share the sparse set: a coarser grid, half the boulders, no ground dust or plumes.
  */
-export const FOG = ['#3a3220', '#1d3838', '#2f4433', '#3a1a12', '#2a0c0e'];
-
-const EXTENT = 440;
-/** Level of the plain under the stele; the land falls DROP further toward the horizon. */
-const BASE = -9, DROP = 8;
-/** Relief (above the local base) at or below which the terrain is a pool. */
-const POOL = .7;
-/** Haze density (exp(-d²k)): the terrain is fully dissolved ~140 units out. */
-const FOG_K = 1 / (100 * 100);
-/** Elevation (unit direction y) of the sky's horizon, matched to where the far terrain dissolves. */
-const HORIZON = -.118;
 const KEY = new THREE.Vector3(-.62, .5, .6).normalize();
-const COLONY = 0xece6dc, LIGHT = 0xffb27a;
-
-/** Height of the landscape at (x, z): the gently falling base plus dune relief, flattened into a plain near the stele, pools clamped flat. */
-export function heightAt(x: number, z: number) {
-  const r = Math.hypot(x, z);
-  const base = BASE - DROP * THREE.MathUtils.smoothstep(r, 10, 150);
-  let relief = (fbm(x * .03 + 3.1, z * .03, 1.7, 4) * 4.6 + (1 - Math.abs(fbm(x * .052, z * .052 + 9, 4.2, 3)) * 1.6) * 3.6) * THREE.MathUtils.smoothstep(r, 6, 17);
-  relief = Math.max(relief, POOL);
-  return { y: base + relief, relief };
-}
+const COLONY = 0xece6dc, LIGHT = 0xffb27a, COLD = 0x9fc4d8;
 
 export class Landscape {
   readonly fog = new THREE.Color(FOG[0]);
+  /** Colonisation progress, 0 (arrival) … 4 (ascent); fractional values grow the structures in. Tween it with `fog`. */
+  stage = 0;
   private readonly scene: THREE.Scene;
   private readonly objects: THREE.Object3D[] = [];
   private readonly disposables: { dispose(): void }[] = [];
   private readonly sky: THREE.ShaderMaterial; private readonly terrain: THREE.ShaderMaterial;
-  private readonly lines: THREE.ShaderMaterial; private readonly lights: THREE.ShaderMaterial;
+  private readonly staged: THREE.ShaderMaterial[] = [];
+  private readonly rocks: THREE.Mesh;
+  private readonly flora: ReturnType<typeof buildFlora> | null;
+  private readonly lite: boolean;
+  private readonly sparse: boolean;
+  /** Hairline passes offset by whole device pixels, so the 1-px GL lines read as ~2-px strokes. */
+  private readonly offset: { m: THREE.ShaderMaterial; x: number; y: number }[] = [];
+  private readonly ratio = Math.min(devicePixelRatio || 1, 2);
   private readonly camera = new THREE.Vector3(0, .6, 5.6);
   private readonly key = KEY.clone();
 
-  constructor(scene: THREE.Scene, mobile: boolean) {
+  constructor(scene: THREE.Scene, mobile: boolean, readonly quality: Quality = 'full') {
     this.scene = scene;
-    const ratio = Math.min(devicePixelRatio || 1, 2);
+    this.lite = quality === 'lite';
+    this.sparse = this.lite || mobile;
+    const defines = this.lite ? { LITE: 1 } : {};
 
     // sky: a background quad that reconstructs the view ray per pixel so the gradient stays on the world horizon as the camera orbits
     this.sky = new THREE.ShaderMaterial({ vertexShader: shader.skyVertex, fragmentShader: shader.skyFragment, uniforms: {
-      uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uFog: { value: this.fog }, uTime: { value: 0 }, uHorizon: { value: HORIZON } },
-      depthTest: false, depthWrite: false });
+      uProjInv: { value: new THREE.Matrix4() }, uCamWorld: { value: new THREE.Matrix4() }, uFog: { value: this.fog }, uKey: { value: this.key }, uTime: { value: 0 }, uStage: { value: this.stage }, uHorizon: { value: HORIZON } },
+      defines, depthTest: false, depthWrite: false });
     const skyGeometry = new THREE.PlaneGeometry(2, 2);
     const sky = new THREE.Mesh(skyGeometry, this.sky);
     sky.renderOrder = -1; sky.frustumCulled = false;
     this.add(sky); this.disposables.push(skyGeometry, this.sky);
 
     // terrain: a jittered grid built in world space (x, height, z)
-    const terrainGeometry = grid(mobile ? 110 : 180);
-    this.terrain = new THREE.ShaderMaterial({ vertexShader: shader.terrainVertex, fragmentShader: shader.terrainFragment, uniforms: {
-      uKey: { value: this.key }, uCamera: { value: this.camera }, uFog: { value: this.fog }, uTime: { value: 0 }, uPool: { value: POOL }, uFogK: { value: FOG_K }, uHorizon: { value: HORIZON } } });
+    const terrainGeometry = grid(this.sparse ? (mobile ? 80 : 130) : 240);
+    this.terrain = new THREE.ShaderMaterial({ vertexShader: shader.terrainVertex, fragmentShader: shader.terrainFragment, defines, uniforms: {
+      ...this.shared(), uPool: { value: POOL } } });
     const terrain = new THREE.Mesh(terrainGeometry, this.terrain);
     terrain.frustumCulled = false;
     this.add(terrain); this.disposables.push(terrainGeometry, this.terrain);
 
-    // colony hairlines and window lights
-    const colonyUniforms = (color: number, opacity: number, size: number, point: number) => ({
-      uColor: { value: new THREE.Color(color) }, uFog: { value: this.fog }, uCamera: { value: this.camera }, uOpacity: { value: opacity }, uFogK: { value: FOG_K }, uSize: { value: size * ratio }, uPoint: { value: point }, uTime: { value: 0 }, uHorizon: { value: HORIZON } });
-    this.lines = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: colonyUniforms(COLONY, .45, 1, 0), transparent: true, depthWrite: false });
-    this.lights = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: colonyUniforms(LIGHT, .95, 3, 1), transparent: true, depthWrite: false });
-    const { lines, lights } = colony();
-    const lineMesh = new THREE.LineSegments(lines, this.lines), lightMesh = new THREE.Points(lights, this.lights);
-    lineMesh.frustumCulled = lightMesh.frustumCulled = false;
-    this.add(lineMesh, lightMesh); this.disposables.push(lines, lights, this.lines, this.lights);
+    this.staged.push(this.terrain);
+
+    // the colony, stage by stage (./landscapeColony): hairlines, warm window lights, cold navigation lights, hull/pad plates
+    const colony = buildColony();
+    this.addStrokes(colony.lines, COLONY, .55);
+    this.addSparks(colony.lights, LIGHT, 20);
+    this.addSparks(colony.cold, COLD, 12);
+    this.addSolid(colony.solids);
+
+    // the ground's detail (./landscapeGround): boulders, outcrops, landing pads, tyre tracks, survey stakes, beacons
+    const ground = buildGround(this.sparse, this.lite);
+    this.addSolid(ground.solids);
+    this.addStrokes(ground.strokes, COLONY, .22);
+    this.addSparks(ground.lights, LIGHT, 12);
+    this.addSparks(ground.cold, COLD, 10);
+    if (!this.sparse) this.addSparks(ground.dust, COLONY, 5, .35);
+    this.rocks = ground.rocks; this.add(this.rocks); this.disposables.push(this.rocks.geometry, this.rocks.material as THREE.Material);
+
+    // above the horizon (./landscapeSky): stars, Phobos and Deimos, the far volcano and mesas, traffic and the stage-4 orbital works
+    const above = buildSky();
+    this.addSolid(above.mesas);
+    this.addSolid(above.moons);
+    this.addSparks(above.stars, COLONY, 4, .7);
+    this.addSparks(above.traffic, COLD, 8);
+    if (!this.sparse) this.addSparks(above.plumes, LIGHT, 6, .5);
+    this.addStrokes(above.strokes, COLONY, .3);
+
+    // life and weather (./landscapeFlora): bioluminescent flora growing with the stages, dust motes, dust devils, meteors, pool mist
+    this.flora = this.lite ? null : buildFlora(quality === 'mid');
+    if (this.flora) this.add(...this.flora.objects);
+  }
+
+  private shared() {
+    return { uKey: { value: this.key }, uCamera: { value: this.camera }, uFog: { value: this.fog }, uTime: { value: 0 }, uStage: { value: this.stage },
+      uFogK: { value: FOG_K }, uFogH: { value: FOG_SCALE_HEIGHT }, uBase: { value: BASE }, uHorizon: { value: HORIZON } };
+  }
+
+  /** Hairline strokes (a Strokes geometry) in the landscape's fog, drawing on with `stage`; drawn in device-pixel-offset passes so they read ~2 px wide. */
+  addStrokes(geometry: THREE.BufferGeometry, color = COLONY, opacity = .45) {
+    const passes = this.quality !== 'full' ? [[0, 0]] : this.ratio >= 1.5 ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 0], [1, 0], [0, 1]];
+    const group = new THREE.Group();
+    passes.forEach(([x, y], i) => {
+      const m = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: { ...this.shared(), uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity * (i ? .7 : 1) }, uSize: { value: 1 }, uPoint: { value: 0 }, uOffset: { value: new THREE.Vector2() } }, defines: this.lite ? { LITE: 1 } : {}, transparent: true, depthWrite: false });
+      const mesh = new THREE.LineSegments(geometry, m); mesh.frustumCulled = false;
+      group.add(mesh); this.disposables.push(m); this.staged.push(m); this.offset.push({ m, x, y });
+    });
+    this.add(group); this.disposables.push(geometry);
+    return group;
+  }
+
+  /** Soft additive lights (a Sparks geometry); `size` is the base point size in CSS px. */
+  addSparks(geometry: THREE.BufferGeometry, color = LIGHT, size = 16, opacity = 1) {
+    const m = new THREE.ShaderMaterial({ vertexShader: shader.colonyVertex, fragmentShader: shader.colonyFragment, uniforms: { ...this.shared(), uColor: { value: new THREE.Color(color) }, uOpacity: { value: opacity }, uSize: { value: size * this.ratio }, uPoint: { value: 1 }, uOffset: { value: new THREE.Vector2() } }, defines: this.lite ? { LITE: 1 } : {}, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const mesh = new THREE.Points(geometry, m); mesh.frustumCulled = false;
+    this.add(mesh); this.disposables.push(geometry, m); this.staged.push(m);
+    return mesh;
+  }
+
+  /** Low-poly solids (a Solids geometry: boulders, rims, hulls) shaded like the terrain, appearing at their aBirth stage. */
+  addSolid(geometry: THREE.BufferGeometry) {
+    const mesh = new THREE.Mesh(geometry, this.terrain); mesh.frustumCulled = false;
+    this.add(mesh); this.disposables.push(geometry);
+    return mesh;
   }
 
   private add(...objects: THREE.Object3D[]) { for (const o of objects) { this.scene.add(o); this.objects.push(o); } }
@@ -84,27 +139,38 @@ export class Landscape {
     camera.updateMatrixWorld();
     this.sky.uniforms.uProjInv.value.copy(camera.projectionMatrixInverse);
     this.sky.uniforms.uCamWorld.value.copy(camera.matrixWorld);
-    this.sky.uniforms.uTime.value = time;
-    this.terrain.uniforms.uTime.value = this.lines.uniforms.uTime.value = this.lights.uniforms.uTime.value = time;
+    this.sky.uniforms.uTime.value = time; this.sky.uniforms.uStage.value = this.stage;
+    for (const m of this.staged) { m.uniforms.uTime.value = time; m.uniforms.uStage.value = this.stage; }
+    updateRocks(this.rocks, time, camera, this.key, this.fog, this.stage);
+    this.flora?.update(time, camera, this.key, this.fog, this.stage);
+    const px = 2 / (innerWidth * this.ratio), py = 2 / (innerHeight * this.ratio);
+    for (const o of this.offset) o.m.uniforms.uOffset.value.set(o.x * px, o.y * py);
   }
 
-  dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); }
+  dispose() { for (const o of this.objects) this.scene.remove(o); for (const d of this.disposables) d.dispose(); this.flora?.dispose(); }
 }
 
 const hash = (x: number, y: number) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
 
-/** Square grid over EXTENT, vertices jittered off the lattice (except on the plain) so the facets fall irregularly. */
+/**
+ * Square grid over EXTENT, vertices jittered off the lattice (except on the plain) so the silhouettes fall irregularly, denser
+ * toward the stele (the band the camera sees up close) and with analytic smooth normals from heightAt so the dunes shade as
+ * continuous regolith rather than facets; the shader adds the per-pixel detail.
+ */
 function grid(segments: number) {
-  const n = segments + 1, position = new Float32Array(n * n * 3), relief = new Float32Array(n * n), index: number[] = [];
-  const step = EXTENT / segments;
+  const n = segments + 1, position = new Float32Array(n * n * 3), normal = new Float32Array(n * n * 3), relief = new Float32Array(n * n), index: number[] = [];
+  const warp = (t: number) => { const u = t * 2 - 1; return (Math.sign(u) * (Math.abs(u) * .55 + u * u * .45) + 1) * .5; };
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const k = j * n + i;
     const edge = i === 0 || j === 0 || i === segments || j === segments ? 0 : 1;
-    let x = (i / segments - .5) * EXTENT, z = (j / segments - .5) * EXTENT;
+    let x = (warp(i / segments) - .5) * EXTENT, z = (warp(j / segments) - .5) * EXTENT;
+    const step = EXTENT / segments * (.55 + .9 * Math.hypot(x, z) / EXTENT);
     const jitter = .38 * step * edge * THREE.MathUtils.smoothstep(Math.hypot(x, z), 7, 14);
     x += (hash(i, j) - .5) * jitter; z += (hash(j + 7.3, i) - .5) * jitter;
-    const h = heightAt(x, z);
+    const h = heightAt(x, z), e = Math.max(.35, step * .5);
     position[k * 3] = x; position[k * 3 + 1] = h.y; position[k * 3 + 2] = z; relief[k] = h.relief;
+    const nx = heightAt(x - e, z).y - heightAt(x + e, z).y, nz = heightAt(x, z - e).y - heightAt(x, z + e).y, l = Math.hypot(nx, 2 * e, nz);
+    normal[k * 3] = nx / l; normal[k * 3 + 1] = 2 * e / l; normal[k * 3 + 2] = nz / l;
   }
   for (let j = 0; j < segments; j++) for (let i = 0; i < segments; i++) {
     const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
@@ -112,35 +178,8 @@ function grid(segments: number) {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
   g.setAttribute('aRelief', new THREE.BufferAttribute(relief, 1));
   g.setIndex(index);
   return g;
-}
-
-/** Hairline colony on the land: domes (three latitude rings + a meridian), masts, a landing ring, one lit track; warm window lights. */
-function colony() {
-  const lines: number[] = [], lights: number[] = [];
-  let seed = 11;
-  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  /** Nudge a site outward until it stands on land rather than in a pool. */
-  const site = (x: number, z: number): [number, number, number] => {
-    for (let k = 0; k < 12; k++) { const h = heightAt(x, z); if (h.relief > POOL + .6) return [x, h.y, z]; const r = Math.hypot(x, z); x += x / r * 3; z += z / r * 3; }
-    const h = heightAt(x, z); return [x, h.y, z];
-  };
-  const circle = (cx: number, cy: number, cz: number, r: number, ax: 'y' | 'z', n = 40) => { for (let i = 0; i < n; i++) { const a0 = i / n * Math.PI * 2, a1 = (i + 1) / n * Math.PI * 2; if (ax === 'y') lines.push(cx + Math.cos(a0) * r, cy, cz + Math.sin(a0) * r, cx + Math.cos(a1) * r, cy, cz + Math.sin(a1) * r); else lines.push(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r, cz, cx + Math.cos(a1) * r, cy + Math.sin(a1) * r, cz); } };
-  const dome = (sx: number, sz: number, r: number) => {
-    const [x, y, z] = site(sx, sz);
-    for (const k of [.0, .45, .78]) circle(x, y + r * k, z, r * Math.sqrt(1 - k * k), 'y');
-    for (let i = 0; i < 12; i++) { const a0 = i / 12 * Math.PI, a1 = (i + 1) / 12 * Math.PI; lines.push(x + Math.cos(a0) * r, y + Math.sin(a0) * r, z, x + Math.cos(a1) * r, y + Math.sin(a1) * r, z); }
-    for (let i = 0; i < 5; i++) { const a = rand() * Math.PI * 2; lights.push(x + Math.cos(a) * r * .8, y + r * .25 + rand() * r * .3, z + Math.sin(a) * r * .8); }
-  };
-  const mast = (sx: number, sz: number, h: number) => { const [x, y, z] = site(sx, sz); lines.push(x, y, z, x, y + h, z); lights.push(x, y + h, z); };
-  for (const [x, z, r] of [[-38, -52, 6], [-30, -58, 4], [-46, -47, 3.2], [52, -40, 5], [58, -34, 3.4], [20, -70, 7], [27, -64, 3.6], [-60, 20, 4.5], [64, 30, 5.2], [-20, 72, 5.5], [-12, 66, 3], [26, -22, 2.4], [-24, 28, 2.8], [34, 18, 2.2]]) dome(x, z, r);
-  for (const [x, z, h] of [[-24, -60, 11], [48, -50, 14], [10, -74, 9], [66, 22, 10], [-66, 12, 12], [-4, 78, 8], [30, -26, 5], [-28, 24, 6]]) mast(x, z, h);
-  const ring = (cx: number, cz: number, r: number) => { const [x, y, z] = site(cx, cz); circle(x, y + .15, z, r, 'y', 48); };
-  ring(36, -58, 5); ring(36, -58, 3.4);
-  for (let i = 0; i < 60; i++) { const t0 = i / 60, t1 = (i + 1) / 60; const p = (t: number) => [THREE.MathUtils.lerp(-40, 36, t) + Math.sin(t * 6) * 4, THREE.MathUtils.lerp(-52, -58, t)] as const; const [x0, z0] = p(t0), [x1, z1] = p(t1); lines.push(x0, heightAt(x0, z0).y + .1, z0, x1, heightAt(x1, z1).y + .1, z1); if (i % 6 === 0) lights.push(x0, heightAt(x0, z0).y + .3, z0); }
-  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
-  const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.Float32BufferAttribute(lights, 3));
-  return { lines: lg, lights: pg };
 }

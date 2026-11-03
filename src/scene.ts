@@ -471,14 +471,14 @@ export class MarsScene {
   }
 }
 
-const TIERS = {
+export const TIERS = {
   full: { detail: 36, wire: 260, bake: 2048, dpr: 1.5, budget: 2_400_000 },
   mid: { detail: 26, wire: 200, bake: 1536, dpr: 1.25, budget: 1_800_000 },
   lite: { detail: 18, wire: 140, bake: 1024, dpr: 1, budget: 1_200_000 },
 } as const;
 
 /** Pick a quality tier from the GPU string and screen size (the way unbelievablycrap serves a full and a lite scan). */
-function detectTier(renderer: THREE.WebGLRenderer, mobile: boolean): keyof typeof TIERS {
+export function detectTier(renderer: THREE.WebGLRenderer, mobile: boolean): keyof typeof TIERS {
   const forced = new URLSearchParams(location.search).get('tier');
   if (forced && forced in TIERS) return forced as keyof typeof TIERS;
   const gl = renderer.getContext();

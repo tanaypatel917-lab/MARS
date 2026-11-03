@@ -12,13 +12,14 @@ see [FONTS.md](FONTS.md) for licenses and repository restrictions.
 
 Review states: `?frame=intro`, `rest`, `mid`, `full`, `close`, `beauty`.
 
-`/how` is the loop with your hands on it: a fractured shard instead of the planet, and one input per move — type a task (observe), drag the latency budget (evaluate), press-and-hold to train (refine), drag the candidate onto the incumbent (ascend); a trace JSON can be uploaded instead of typing. Scoring is an in-browser `Simulation` behind the `Scorer` interface in `src/how/scorer.ts` (swap in `RemoteScorer` when the API exists). Inputs persist in the URL hash. Review states: `/how?frame=loop|observe|evaluate|refine|ascend`, add `&demo=1` to prefill the inputs.
+`/how` is the loop as an object: a fractured Martian stele in front of a landscape that gets colonised move by move (`src/how/landscape*.ts`), a five-move carousel (scroll/arrow keys/swipe), a 360° orbit, a rewind control, a sound toggle and a HINTS line. Click the stele to open the move's notes. Review states: `/how?frame=<the loop|observe|evaluate|refine|ascend>`, add `&open=1` to open the stone and `&tier=full|mid|lite` to force a quality tier.
 Type specimen: `/specimen.html`. `shots/` is intentionally gitignored.
 
 `npm run build` and `npx tsc --noEmit` check the production bundle/types.
 With the server on5173 and Chromium CDP on29229, `npm test` verifies the
 frame/phase scaffold, form validation, reduced motion, WebGL fallback and mobile
-overflow. `node scripts/capture.mjs` writes approval screenshots to `shots/`.
+overflow, then (`scripts/howcheck.mjs`) the five `/how` frames, stele-vs-landscape
+hit-testing, the canvas pixel budget, reduced motion, the fallback and phone overflow. `node scripts/capture.mjs` writes approval screenshots to `shots/`.
 
 ## Milestone 2: one planet, five passes
 

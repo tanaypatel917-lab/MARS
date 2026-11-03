@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as shader from '../shaders';
 import { steleGeometry, steleUniforms, steleVertexChunk, steleVertexShader, seamFragment } from './stele';
 import { Landscape } from './landscape';
+import { TIERS, detectTier } from '../scene';
 import { LivePasses, type PassIndex } from './passes';
 
 /**
@@ -63,6 +64,8 @@ export class HowWorld {
   readonly landscape: Landscape;
   readonly passes: LivePasses;
   readonly facetCount: number;
+  /** Quality tier (src/scene.ts): caps the device pixel ratio and the render budget, scales the landscape's detail. */
+  readonly tier: keyof typeof TIERS;
   private readonly raycaster = new THREE.Raycaster();
   private readonly key = new THREE.Vector3(-.62, .5, .6).normalize();
   private readonly stele: THREE.Mesh;
@@ -80,6 +83,7 @@ export class HowWorld {
     this.mobile = mobile;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setClearColor(0x050407, 1);
+    this.tier = detectTier(this.renderer, mobile);
     const detail = mobile ? 22 : 36;
 
     // terrain bake for the stele's beauty pass (same as home)
@@ -128,12 +132,13 @@ export class HowWorld {
     this.screen = new THREE.Mesh(screenGeometry, this.screenMaterial); this.screen.position.set(0, .15, 0); this.screen.visible = false; this.screen.renderOrder = 3;
     this.scene.add(this.screen); this.disposables.push(screenGeometry, this.screenMaterial, this.steleMaterial, this.seamMaterial);
 
-    this.landscape = new Landscape(this.scene, mobile);
+    this.landscape = new Landscape(this.scene, mobile, this.tier);
     this.resize();
   }
 
   resize() {
-    const ratio = Math.min(devicePixelRatio || 1, this.mobile ? 1.5 : 2);
+    const q = TIERS[this.tier];
+    const ratio = Math.min(devicePixelRatio || 1, q.dpr, Math.sqrt(q.budget / (innerWidth * innerHeight)));
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(innerWidth, innerHeight, false);
     this.camera.aspect = innerWidth / innerHeight;
@@ -188,6 +193,8 @@ export class HowWorld {
       this.screen.position.y = .15 + Math.sin(state.time * .8) * .02;
     }
 
+    // the colony grows with the moves: stage 0 at the loop, fully settled at ascend
+    this.landscape.stage = state.position;
     this.landscape.update(state.time, this.camera, this.key);
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.scene, this.camera);
