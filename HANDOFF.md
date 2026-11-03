@@ -25,11 +25,13 @@ Run and verify (Node 24 via nvm; `package.json` pins `>=24 <25`):
     npm run dev            # Vite on 0.0.0.0:5173
     npx tsc --noEmit       # types only; `npm run build` already runs tsc --noEmit before `vite build`
     npm run build          # production bundle in dist/ (gitignored)
-    npm test               # scripts/verify.mjs: needs the dev server on 5173 AND a Chromium with CDP on 29229, plus python3 + PIL
+    npm test               # scripts/verify.mjs + scripts/howcheck.mjs: needs the dev server on 5173 AND a Chromium with CDP on 29229, plus python3 + PIL
 
-`npm test` covers the home page only (frames rest/mid/beauty and panel counts, canvas within the 2.4 MP budget, hidpi scissor
+`npm test` runs the home checks (frames rest/mid/beauty and panel counts, canvas within the 2.4 MP budget, hidpi scissor
 alignment at DPR 2, unknown frame fallback, intro, waitlist form, sound, about, captions, reduced motion, 390 px overflow,
-WebGL fallback, zero console/HTTP errors). Nothing in it opens `/how`. `node scripts/capture.mjs` writes approval
+WebGL fallback, zero console/HTTP errors) and then `scripts/howcheck.mjs` for `/how` (the five frames and the unknown-name
+fallback, a tap on the landscape does not open the stele while a tap on the stele does, Escape closes, canvas within the
+tier budget at DPR 1 and 2, reduced motion, WebGL fallback, 390 px overflow, zero console/page errors). `node scripts/capture.mjs` writes approval
 screenshots to `shots/` (gitignored). Verified on this checkout: `npm install`, `npx tsc --noEmit` and `npm run build` pass.
 
 Review URLs (checked against the code, the README is partly stale):
@@ -77,12 +79,18 @@ Integration changes made on top of the union:
 - `lite`: coarser terrain grid, single-pass hairlines, no flora/dust/plumes, and a `LITE` shader define that skips per-pixel
   regolith and sky-layer noise. `mid`: drops the extra hairline passes and the flora's weather (motes, dust devils, mist,
   meteor). `full`: everything.
-- Measured frame times per tier:
-  <!-- PERF: filled in by parent -->
+- `/how` now also skips `world.render` while the tab is hidden, like the home page.
+- Phones share the sparse set regardless of tier (coarser grid, half the boulders at 180 tris, no ground dust/plumes) and keep
+  the mid/full shaders and flora.
+- Measured frame times (software GL on the integration VM, `node scripts/howshots.mjs <port> <tag>` with `TIER=`; only
+  comparable to each other, not to real hardware): `main` /how 131-134 ms/frame at 1440x900 and 46 ms at 390x844; this
+  branch on `lite` 160-330 ms (1.2-2.5x, canvas capped at 1385x866 by the 1.2 MP budget) and 68-125 ms (1.5-2.7x); `mid` on the phone viewport 109-142 ms; `full` at 1440x900
+  430-590 ms (the full tier is never selected on software GL).
 
 ## 3. What remains
 
-- Tune the lite/mid cut-offs on real low-end hardware; measurements so far are software-GL only.
+- Tune the lite/mid cut-offs on real low-end hardware; measurements so far are software-GL only. Phones get `mid`
+  (`innerWidth < 700`), which keeps the flora: check it on a mid-range Android before relying on it.
 - Art pass on hairline density near the stele.
 - Consider lazy-building the flora after first paint.
 - Delete the old `devin/v5-landscape*` branches (and `v5-passes`, `v5-carousel`, `v5-stele` if nobody needs them) once the
@@ -92,8 +100,6 @@ Observations from reading `main` (mine, not from the integration session):
 
 - README drift: the /how paragraph describes v4 (`&demo=1`, typed inputs, `Scorer`); `frame=loop` should read `the loop`;
   `&open=1` and `?tier=` are undocumented; the test description implies /how coverage that does not exist.
-- `/how` has no hidden-tab pause; worth adding the same `visibilitychange` guard the home page has now that the landscape
-  is much heavier.
 - `npm install` with Node 24.19's bundled npm 10.8.3 rewrites `package-lock.json` (drops `libc` fields written by a newer
   npm). Use `npm ci` or revert the lockfile before committing.
 - `scripts/verify.mjs` shells out to `python3` with PIL for the hidpi probe; that dependency is not mentioned anywhere.
