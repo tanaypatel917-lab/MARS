@@ -207,10 +207,11 @@ class Discs {
       const a = s / segs * TAU, d = R * r / rings, px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
       this.pos.push(px, ground(px, pz) + .12, pz); this.uv.push(r / rings, a); this.info.push(phase, birth, tint);
     }
-    for (let s = 0; s < segs; s++) this.index.push(start, start + 1 + s, start + 1 + (s + 1) % segs);
+    // wound counter-clockwise seen from above so the discs face the (elevated) camera under front-face culling
+    for (let s = 0; s < segs; s++) this.index.push(start, start + 1 + (s + 1) % segs, start + 1 + s);
     for (let r = 1; r < rings; r++) for (let s = 0; s < segs; s++) {
       const a = start + 1 + (r - 1) * segs + s, b = start + 1 + (r - 1) * segs + (s + 1) % segs, c = a + segs, d = b + segs;
-      this.index.push(a, c, b, b, c, d);
+      this.index.push(a, b, c, b, d, c);
     }
   }
   geometry() {
@@ -261,9 +262,10 @@ function tube(curve: THREE.Curve<THREE.Vector3>, radius: (t: number) => number, 
       v.addScaledVector(tan, -slope).normalize(); nor.push(v.x, v.y, v.z);
     }
   }
+  // (nrm, bin, tan) is right-handed, so a→b→c (around, then along) is the outward-facing order
   for (let i = 0; i < along; i++) for (let j = 0; j < around; j++) {
     const a = i * around + j, b = i * around + (j + 1) % around, c = a + around, d = b + around;
-    idx.push(a, c, b, b, c, d);
+    idx.push(a, b, c, b, d, c);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

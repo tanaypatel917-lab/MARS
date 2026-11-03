@@ -21,9 +21,9 @@ const desktop = { width: 1440, height: 900 }, phone = { width: 390, height: 844 
 for (const [frame, idx] of [['the loop', 0], ['observe', 1], ['evaluate', 2], ['refine', 3], ['ascend', 4], ['nope', 0]]) {
   const { context, page } = await open(desktop, `/how?frame=${encodeURIComponent(frame)}`);
   await page.waitForTimeout(1500);
-  const title = await page.locator('#carousel .label, #carousel').first().innerText().catch(() => '');
+  const current = await page.locator('#carousel [aria-current="true"]').evaluate(el => ({ index: Number(el.dataset.index), text: el.textContent.trim() })).catch(() => ({ index: -1, text: '' }));
   const d = await page.evaluate(() => ({ ...document.body.dataset }));
-  check(d.end === (idx === 4 ? 'on' : 'off') && d.renderer === 'ready' && ['full', 'mid', 'lite'].includes(d.tier), `frame=${frame} → position ${idx}, renderer ready, tier ${d.tier} (${title.replace(/\s+/g, ' ').slice(0, 40)})`);
+  check(current.index === idx && d.end === (idx === 4 ? 'on' : 'off') && d.renderer === 'ready' && ['full', 'mid', 'lite'].includes(d.tier), `frame=${frame} → carousel at ${idx} (${current.text}), renderer ready, tier ${d.tier}`);
   await context.close();
 }
 

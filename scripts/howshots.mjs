@@ -1,10 +1,11 @@
 // usage: node howshots.mjs <port> <tag> [frames...]  — screenshots of /how frames on desktop + phone, plus frame-time samples
 import { chromium } from '@playwright/test';
 import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 const [port = '5173', tag = 'after', ...rest] = process.argv.slice(2);
 const frames = rest.length ? rest : ['loop', 'observe', 'evaluate', 'refine', 'ascend'];
 const browser = await chromium.connectOverCDP('http://localhost:29229');
-const out = `/home/ubuntu/repos/MARS/shots/${tag}`; await fs.mkdir(out, { recursive: true });
+const out = fileURLToPath(new URL(`../shots/${tag}/`, import.meta.url)); await fs.mkdir(out, { recursive: true });
 const errors = [];
 async function run(viewport, label, extra = '') {
   const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });

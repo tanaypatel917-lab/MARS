@@ -97,7 +97,8 @@ class Colony {
   cylinder(F: Frame, cx: number, y0: number, cz: number, r: number, h: number, n: number, relief: number, birth: number) {
     const ring = (y: number) => Array.from({ length: n }, (_, i) => F.p(cx + Math.cos(i / n * TAU) * r, y, cz + Math.sin(i / n * TAU) * r));
     const lo = ring(y0), hi = ring(y0 + h), top = F.p(cx, y0 + h, cz);
-    for (let i = 0; i < n; i++) { const j = (i + 1) % n; this.solids.tri(lo[i], hi[i], hi[j], relief, birth); this.solids.tri(lo[i], hi[j], lo[j], relief, birth); this.solids.tri(top, hi[i], hi[j], relief, birth); }
+    // Frame (r, u, f) is left-handed, so the sides wind lo→hi[j]→hi[i] to face outward (the cap's winding is already up)
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; this.solids.tri(lo[i], hi[j], hi[i], relief, birth); this.solids.tri(lo[i], lo[j], hi[j], relief, birth); this.solids.tri(top, hi[i], hi[j], relief, birth); }
   }
   warm(p: Vec3, birth: number, size = .4, rise = 0, phase?: number) { this.lights.add(p, birth, size, rise, phase); }
   nav(p: Vec3, birth: number, size = .6) { this.cold.add(p, birth, size); }
